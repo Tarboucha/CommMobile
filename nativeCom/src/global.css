@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary: #660000;
+    --primary-foreground: #FFFFFF;
+    --background: #FAF7F2;
+    --foreground: #1C1917;
+    --secondary: #F5E6D3;
+    --secondary-foreground: #1C1917;
+    --muted: #F5E6D3;
+    --muted-foreground: #78716C;
+    --accent: #E8D5D5;
+    --accent-foreground: #660000;
+    --destructive: #DC2626;
+    --destructive-foreground: #FFFFFF;
+    --border: #FFFFFF;
+    --input: #E7E5E4;
+    --ring: #FFFFFF;
+    --card: #FFFFFF;
+    --card-foreground: #1C1917;
+    --popover: #FFFFFF;
+    --popover-foreground: #1C1917;
+    /* Status */
+    --success: #16A34A;
+    --warning: #F59E0B;
+    --error: #DC2626;
+    --info: #3B82F6;
+    --available: #10B981;
+    --available-background: #D1FAE5;
+    --available-text: #065F46;
+    --featured: #F59E0B;
+    --featured-background: #FEF3C7;
+    --featured-text: #92400E;
+    --notification: #EF4444;
+    --notification-background: #FEE2E2;
+    --notification-text: #991B1B;
+    --notification-bell: #660000;
+    --purple: #8B5CF6;
+    --purple-background: #E9D5FF;
+    --purple-text: #581C87;
+    --info-background: #DBEAFE;
+    --info-text: #1E3A8A;
+    /* Sonstige */
+    --icon-background: #E8D5D5;
+    --section-background: #F5E6D3;
+    --overlay: rgba(0, 0, 0, 0.5);
+  }
+
+  .dark:root {
+    --primary: #B45A69;
+    --primary-foreground: #1C1917;
+    --background: #1C1917;
+    --foreground: #FAFAF9;
+    --secondary: #252525;
+    --secondary-foreground: #FAFAF9;
+    --muted: #252525;
+    --muted-foreground: #A8A29E;
+    --accent: #660000;
+    --accent-foreground: #E8D5D5;
+    --destructive: #EF4444;
+    --destructive-foreground: #FFFFFF;
+    --border: #1C1917;
+    --input: rgba(255, 255, 255, 0.15);
+    --ring: #B45A69;
+    --card: #252525;
+    --card-foreground: #FAFAF9;
+    --popover: #252525;
+    --popover-foreground: #FAFAF9;
+    /* Status */
+    --success: #22C55E;
+    --warning: #F59E0B;
+    --error: #EF4444;
+    --info: #60A5FA;
+    --available: #22C55E;
+    --available-background: rgba(34, 197, 94, 0.2);
+    --available-text: #86EFAC;
+    --featured: #FBBF24;
+    --featured-background: rgba(251, 191, 36, 0.2);
+    --featured-text: #FDE68A;
+    --notification: #F87171;
+    --notification-background: rgba(239, 68, 68, 0.2);
+    --notification-text: #FCA5A5;
+    --notification-bell: #B45A69;
+    --purple: #A78BFA;
+    --purple-background: rgba(167, 139, 250, 0.2);
+    --purple-text: #DDD6FE;
+    --info-background: rgba(96, 165, 250, 0.2);
+    --info-text: #BFDBFE;
+    /* Sonstige */
+    --icon-background: #660000;
+    --section-background: #252525;
+    --overlay: rgba(0, 0, 0, 0.5);
+  }
+}

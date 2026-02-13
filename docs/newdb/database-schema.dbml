@@ -1,0 +1,856 @@
+// Community Platform - Database Schema
+// "Dein Dorf in der Stadt"
+// Visualize at: https://dbdiagram.io
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+Enum address_type {
+  home
+  work
+  other
+}
+
+Enum community_access_type {
+  open
+  request_to_join
+  invite_only
+}
+
+Enum membership_status {
+  pending
+  active
+  removed
+  left
+}
+
+Enum member_role {
+  owner [note: 'Full control, can delete community']
+  admin [note: 'Manage settings, members, content']
+  moderator [note: 'Approve/remove content and members']
+  member [note: 'Browse and book only']
+}
+
+Enum join_method {
+  invite_link
+  direct_invite
+  request
+}
+
+Enum invitation_status {
+  pending
+  accepted
+  declined
+  expired
+}
+
+Enum offering_category {
+  food [note: 'Prepared meals, baked goods']
+  product [note: 'Handmade items, crafts']
+  service [note: 'Tutoring, repairs, skills']
+  share [note: 'Tool lending, carpooling']
+  event [note: 'Community events, gatherings']
+}
+
+Enum price_type {
+  fixed
+  negotiable
+  free
+  donation
+}
+
+Enum booking_status {
+  pending
+  confirmed
+  in_progress
+  ready
+  completed
+  cancelled
+  refunded
+}
+
+Enum fulfillment_method {
+  pickup
+  delivery
+  online [note: 'For virtual services/events']
+  at_location [note: 'Service at customer location']
+}
+
+Enum payment_method {
+  in_app
+  cash
+  external [note: 'PayPal, bank transfer, etc.']
+}
+
+Enum payment_status {
+  pending
+  paid
+  refunded
+  cancelled
+}
+
+// ==========================================
+// PROFILES (References Supabase auth.users)
+// ==========================================
+
+Table profiles {
+  id uuid [pk]
+  auth_user_id uuid [unique, not null, note: 'References auth.users(id)']
+
+  // Identity
+  display_name text
+  first_name text
+  last_name text
+  avatar_url text
+  bio text
+
+  // Contact
+  phone text
+  email text
+
+  // Preferences
+  preferred_language text [default: 'de']
+
+  // Subscription
+  subscription_type text [default: 'free', note: 'free | premium']
+  subscription_expires_at timestamptz
+
+  // Verification (for providers)
+  is_verified boolean [default: false]
+  business_type text [note: 'individual | registered_business']
+  verification_documents_json jsonb
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table addresses {
+  id uuid [pk]
+  profile_id uuid [not null, ref: > profiles.id]
+
+  // Type & Label
+  address_type address_type [default: 'home']
+  label text [note: 'Custom label e.g. "Moms House"']
+
+  // Address Details
+  street_name text [not null]
+  street_number text
+  apartment_unit text
+  city text [not null]
+  state text [not null]
+  postal_code text [not null]
+  country text [default: 'Germany']
+
+  // Geolocation
+  latitude decimal(10,8) [not null]
+  longitude decimal(11,8) [not null]
+  location geography [note: 'PostGIS point']
+
+  // Instructions
+  delivery_instructions text
+
+  // Status
+  is_default boolean [default: false]
+  is_active boolean [default: true]
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+// ==========================================
+// COMMUNITIES
+// ==========================================
+
+Table communities {
+  id uuid [pk]
+
+  // Creator
+  created_by_profile_id uuid [not null, ref: > profiles.id]
+
+  // Basics
+  community_name text [not null]
+  community_description text
+  community_image_url text
+
+  // Type & Access
+  access_type community_access_type [default: 'invite_only']
+  auto_approve_join_requests boolean [default: false]
+  allow_member_invites boolean [default: true]
+
+  // Location (optional)
+  address_id uuid [ref: > addresses.id]
+
+  // Invite Link
+  invite_link_token text [unique]
+  invite_link_expires_at timestamptz
+
+  // Limits
+  max_members int [default: 100]
+  current_members_count int [default: 0]
+
+  // Subscription
+  plan text [default: 'free', note: 'free | pro']
+
+  // Status
+  is_active boolean [default: true]
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table community_members {
+  id uuid [pk]
+
+  // Relations
+  community_id uuid [not null, ref: > communities.id]
+  profile_id uuid [not null, ref: > profiles.id]
+
+  // How they joined
+  join_method join_method [not null]
+  invited_by_profile_id uuid [ref: > profiles.id]
+  approved_by_profile_id uuid [ref: > profiles.id]
+
+  // Status & Role
+  membership_status membership_status [default: 'pending']
+  member_role member_role [default: 'member']
+
+  // Permission overrides (can grant to any role)
+  can_post_offerings boolean [default: false, note: 'Can create/manage offerings in this community']
+  can_invite_members boolean [default: false, note: 'Can invite new members']
+
+  // Notes
+  admin_notes text [note: 'Private notes from admin']
+  removal_reason text
+  removed_by_profile_id uuid [ref: > profiles.id]
+
+  // Timestamps
+  join_requested_at timestamptz
+  membership_approved_at timestamptz
+  membership_removed_at timestamptz
+  last_activity_at timestamptz
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (community_id, profile_id) [unique]
+  }
+}
+
+Table community_invitations {
+  id uuid [pk]
+
+  // Relations
+  community_id uuid [not null, ref: > communities.id]
+  invited_by_profile_id uuid [not null, ref: > profiles.id]
+
+  // Invitee
+  invited_profile_id uuid [ref: > profiles.id]
+  invited_email text
+
+  // Invitation Details
+  invitation_token text [unique, not null]
+  invitation_message text
+  invitation_status invitation_status [default: 'pending']
+
+  // Limits
+  max_uses int [default: 1]
+  current_uses int [default: 0]
+  expires_at timestamptz [not null]
+
+  // Response
+  accepted_at timestamptz
+  declined_at timestamptz
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// OFFERINGS (Products, Services, Food, etc.)
+// ==========================================
+
+Table offerings {
+  id uuid [pk]
+
+  // Relations
+  provider_id uuid [not null, ref: > profiles.id, note: 'Profile who provides this']
+  community_id uuid [not null, ref: > communities.id]
+
+  // Category
+  category offering_category [not null]
+
+  // Basics
+  title text [not null]
+  description text
+
+  // Pricing
+  price_amount decimal(10,2)
+  currency_code text [default: 'EUR']
+  price_type price_type [default: 'fixed']
+
+  // Fulfillment & Delivery
+  fulfillment_method fulfillment_method [default: 'pickup']
+  is_delivery_available boolean [default: false]
+  delivery_radius_km decimal(5,2)
+  delivery_fee_amount decimal(10,2) [default: 0]
+  pickup_address_id uuid [ref: > addresses.id, note: 'Where to pickup']
+
+  // Status Flags
+  is_featured boolean [default: false]
+
+  // Version for optimistic locking
+  version int [default: 1]
+
+  // Status
+  status text [default: 'active', note: 'active | paused | deleted']
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+}
+
+Table offering_images {
+  id uuid [pk]
+  offering_id uuid [not null, ref: > offerings.id]
+
+  image_url text [not null]
+  display_order int [default: 0]
+  is_primary boolean [default: false]
+
+  created_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// AVAILABILITY SCHEDULE SYSTEM (Key USP!)
+// ==========================================
+
+// RRULE-based recurring schedules
+Table availability_schedules {
+  id uuid [pk]
+
+  // Offering relation
+  offering_id uuid [not null, ref: > offerings.id]
+
+  // RRULE components
+  dtstart date [not null, note: 'Schedule start date']
+  dtend date [note: 'Schedule end date (optional)']
+  rrule text [not null, note: 'iCal RRULE e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR']
+
+  // Time window
+  start_time time [not null, note: 'Available from']
+  end_time time [not null, note: 'Available until']
+
+  // Capacity
+  slots_available int [not null, default: 10]
+  slot_unit text [note: 'portion, item, participant, seat, hour, etc.']
+  slot_label text [note: 'e.g. "Morning", "Lunch", "Session 1"']
+
+  // Status
+  is_active boolean [default: true]
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  Note: 'RRULE-based recurring availability. Instances generated on the fly.'
+}
+
+// Date-specific exceptions (cancellations, overrides)
+Table schedule_exceptions {
+  id uuid [pk]
+
+  schedule_id uuid [not null, ref: > availability_schedules.id]
+
+  // Which date
+  exception_date date [not null]
+
+  // Cancellation
+  is_cancelled boolean [default: false]
+  cancellation_reason text
+
+  // Or Override values
+  override_start_time time
+  override_end_time time
+  override_slots int
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (schedule_id, exception_date) [unique]
+  }
+
+  Note: 'Exceptions: cancel a date or override time/capacity'
+}
+
+// Track bookings per schedule instance (inventory)
+Table schedule_instances {
+  // Composite PK
+  schedule_id uuid [not null, ref: > availability_schedules.id]
+  instance_date date [not null]
+
+  // Booking count
+  slots_booked int [default: 0]
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (schedule_id, instance_date) [pk]
+  }
+
+  Note: 'Tracks slots_booked per schedule per date. Created on first booking.'
+}
+
+// ==========================================
+// BOOKINGS (Transactions)
+// ==========================================
+
+Table bookings {
+  id uuid [pk]
+
+  // Relations (community-scoped, multi-provider)
+  customer_id uuid [not null, ref: > profiles.id]
+  community_id uuid [not null, ref: > communities.id, note: 'Booking is community-scoped']
+
+  // Reference
+  booking_number text [unique, not null]
+  idempotency_key text [unique]
+
+  // Status
+  booking_status booking_status [default: 'pending']
+
+  // Delivery (if any items need delivery)
+  delivery_address_id uuid [ref: > addresses.id, note: 'Customer address for delivery items']
+  special_instructions text
+
+  // Pricing
+  currency_code text [default: 'EUR']
+  subtotal_amount decimal(10,2) [not null, note: 'Sum of booking_items.total_amount']
+  service_fee_amount decimal(10,2) [default: 0, note: 'Platform fee to customer']
+  tip_amount decimal(10,2)
+  discount_amount decimal(10,2)
+  total_amount decimal(10,2) [not null, note: 'subtotal + SUM(item delivery fees) + service_fee + tip - discount']
+
+  // Platform Fees
+  platform_fee_amount decimal(10,2) [default: 0, note: '5% transaction fee']
+
+  // Payment
+  payment_method payment_method [default: 'cash']
+  payment_status payment_status [default: 'pending']
+  payment_reference text [note: 'Stripe payment ID, etc.']
+
+  // Timeline
+  confirmed_at timestamptz
+  ready_at timestamptz
+  completed_at timestamptz
+  cancelled_at timestamptz
+  cancelled_by_id uuid [ref: > profiles.id]
+  cancellation_reason text
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+}
+
+Table booking_items {
+  id uuid [pk]
+
+  // Relations
+  booking_id uuid [not null, ref: > bookings.id]
+  offering_id uuid [not null, ref: > offerings.id]
+  schedule_id uuid [ref: > availability_schedules.id]
+  instance_date date [note: 'Which schedule instance was booked']
+
+  // Fulfillment (per item - pickup uses offering address, delivery uses booking address)
+  fulfillment_method fulfillment_method [not null]
+  delivery_fee_amount decimal(10,2) [default: 0, note: 'Delivery fee for this item if applicable']
+
+  // Quantity & Pricing
+  quantity int [not null, default: 1]
+  unit_price_amount decimal(10,2) [not null]
+  total_amount decimal(10,2) [not null]
+  currency_code text [default: 'EUR']
+
+  // Version for conflict detection
+  offering_version int [not null]
+
+  // Snapshot of offering at booking time
+  snapshot_title text [not null]
+  snapshot_description text
+  snapshot_image_url text
+  snapshot_category offering_category [not null]
+
+  // Special requests
+  special_instructions text
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// BOOKING SNAPSHOTS (Immutable History)
+// ==========================================
+
+// Shared address snapshot table (reusable)
+Table snapshot_addresses {
+  id uuid [pk]
+
+  // Original reference (optional, for audit)
+  original_address_id uuid [ref: > addresses.id]
+
+  // Address fields
+  street_name text
+  street_number text
+  apartment_unit text
+  city text
+  postal_code text
+  country text
+  latitude decimal(10,8)
+  longitude decimal(11,8)
+  instructions text
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Reusable address snapshot for any entity'
+}
+
+Table booking_provider_snapshots {
+  id uuid [pk]
+
+  // Per booking_item (each item can have different provider)
+  booking_item_id uuid [unique, not null, ref: - booking_items.id]
+  original_provider_id uuid [not null, ref: > profiles.id]
+
+  // Snapshot (from profile)
+  snapshot_display_name text [not null]
+  snapshot_avatar_url text
+  snapshot_email text
+  snapshot_phone text
+
+  // Snapshot (from offering's pickup address)
+  snapshot_address_id uuid [ref: > snapshot_addresses.id]
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Immutable snapshot of provider profile at booking time (per item)'
+}
+
+Table booking_customer_snapshots {
+  id uuid [pk]
+
+  booking_id uuid [unique, not null, ref: - bookings.id]
+  original_customer_id uuid [not null, ref: > profiles.id]
+
+  // Snapshot
+  snapshot_display_name text
+  snapshot_first_name text
+  snapshot_last_name text
+  snapshot_email text
+  snapshot_phone text
+  snapshot_avatar_url text
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Immutable snapshot of customer at booking time'
+}
+
+Table booking_delivery_snapshots {
+  id uuid [pk]
+
+  booking_id uuid [unique, not null, ref: - bookings.id]
+  snapshot_address_id uuid [ref: > snapshot_addresses.id]
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Delivery address snapshot for booking'
+}
+
+Table booking_schedule_snapshots {
+  id uuid [pk]
+
+  booking_item_id uuid [unique, not null, ref: - booking_items.id]
+  original_schedule_id uuid [ref: > availability_schedules.id]
+
+  // Schedule snapshot
+  snapshot_dtstart date [not null]
+  snapshot_dtend date
+  snapshot_rrule text [not null]
+  snapshot_start_time time [not null]
+  snapshot_end_time time [not null]
+  snapshot_slots_available int [not null]
+  snapshot_slot_unit text
+  snapshot_slot_label text
+
+  // Exception data (if applicable)
+  had_exception boolean [default: false]
+  exception_id uuid [ref: > schedule_exceptions.id]
+  exception_override_start_time time
+  exception_override_end_time time
+  exception_override_slots int
+  exception_reason text
+
+  // Inventory state
+  slots_booked_at_booking int
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Immutable snapshot of schedule state at booking time'
+}
+
+Table booking_community_snapshots {
+  id uuid [pk]
+
+  booking_id uuid [unique, not null, ref: - bookings.id]
+  original_community_id uuid [ref: > communities.id]
+
+  // Community snapshot
+  snapshot_community_name text [not null]
+  snapshot_community_description text
+  snapshot_community_image_url text
+
+  created_at timestamptz [default: `now()`]
+
+  Note: 'Immutable snapshot of community at booking time'
+}
+
+// ==========================================
+// BOOKING STATUS HISTORY
+// ==========================================
+
+Table booking_status_history {
+  id uuid [pk]
+
+  booking_id uuid [not null, ref: > bookings.id]
+
+  from_status booking_status
+  to_status booking_status [not null]
+
+  changed_by_id uuid [ref: > profiles.id]
+  notes text
+
+  created_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// REVIEWS & RATINGS
+// ==========================================
+
+Table reviews {
+  id uuid [pk]
+
+  // Relations (review is for overall booking experience)
+  booking_id uuid [unique, not null, ref: - bookings.id]
+  reviewer_id uuid [not null, ref: > profiles.id]
+  community_id uuid [ref: > communities.id]
+
+  // Rating
+  rating int [not null, note: '1-5 stars']
+  review_text text
+
+  // Moderation
+  is_visible boolean [default: true]
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  Note: 'Review for overall booking experience (providers derived from items)'
+}
+
+// ==========================================
+// NOTIFICATIONS
+// ==========================================
+
+Table notifications {
+  id uuid [pk]
+
+  profile_id uuid [not null, ref: > profiles.id]
+
+  // Type
+  notification_type text [not null]
+
+  // Content
+  title text [not null]
+  body text
+  data_json jsonb
+
+  // Related entities
+  related_booking_id uuid [ref: > bookings.id]
+  related_offering_id uuid [ref: > offerings.id]
+  related_community_id uuid [ref: > communities.id]
+
+  // Status
+  is_read boolean [default: false]
+  read_at timestamptz
+
+  // Timestamps
+  created_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// MESSAGING
+// ==========================================
+
+Enum conversation_type {
+  direct [note: 'DM between 2 users']
+  community [note: 'Community group chat']
+  booking [note: 'Booking coordination thread']
+}
+
+Table conversations {
+  id uuid [pk]
+
+  conversation_type conversation_type [not null]
+
+  // For community chats (auto-created when community is created)
+  community_id uuid [ref: > communities.id]
+
+  // For booking threads (auto-created when booking is confirmed)
+  booking_id uuid [ref: > bookings.id]
+
+  // Metadata
+  title text [note: 'Optional, for named conversations']
+  last_message_at timestamptz
+  last_message_preview text [note: 'Truncated preview of last message']
+
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  Note: 'Container for messages. DMs require shared community membership.'
+}
+
+Table conversation_participants {
+  conversation_id uuid [not null, ref: > conversations.id]
+  profile_id uuid [not null, ref: > profiles.id]
+
+  // Per-user state
+  last_read_at timestamptz
+  is_muted boolean [default: false]
+  muted_until timestamptz [note: 'Temporary mute']
+
+  // Membership
+  joined_at timestamptz [default: `now()`]
+  left_at timestamptz
+  removed_at timestamptz
+  removed_by_id uuid [ref: > profiles.id]
+
+  indexes {
+    (conversation_id, profile_id) [pk]
+  }
+}
+
+Table messages {
+  id uuid [pk]
+
+  conversation_id uuid [not null, ref: > conversations.id]
+  sender_id uuid [not null, ref: > profiles.id]
+
+  // Content
+  content text
+
+  // Reply threading
+  reply_to_message_id uuid [ref: > messages.id]
+
+  // Attachments flag
+  has_attachments boolean [default: false]
+
+  // Edit/Delete state
+  is_edited boolean [default: false]
+  edited_at timestamptz
+  is_deleted boolean [default: false]
+  deleted_at timestamptz
+
+  // Retention (GDPR compliance)
+  expires_at timestamptz [note: 'Auto-delete after this time based on conversation type']
+
+  created_at timestamptz [default: `now()`]
+
+  indexes {
+    (conversation_id, created_at)
+  }
+
+  Note: 'Retention: DMs 90 days, Community 1 year, Booking 7 years'
+}
+
+Table message_attachments {
+  id uuid [pk]
+  message_id uuid [not null, ref: > messages.id]
+
+  file_url text [not null]
+  file_type text [note: 'image | video | document | audio']
+  file_name text
+  file_size_bytes int
+  mime_type text
+
+  // Image dimensions (if applicable)
+  width int
+  height int
+
+  created_at timestamptz [default: `now()`]
+}
+
+// ==========================================
+// TABLE GROUPS (for visualization)
+// ==========================================
+
+TableGroup users_group {
+  users
+  profiles
+  addresses
+}
+
+TableGroup communities_group {
+  communities
+  community_members
+  community_invitations
+}
+
+TableGroup offerings_group {
+  offerings
+  offering_images
+}
+
+TableGroup schedules_group {
+  availability_schedules
+  schedule_exceptions
+  schedule_instances
+}
+
+TableGroup bookings_group {
+  bookings
+  booking_items
+  booking_status_history
+}
+
+TableGroup snapshots_group {
+  snapshot_addresses
+  booking_provider_snapshots
+  booking_customer_snapshots
+  booking_delivery_snapshots
+  booking_schedule_snapshots
+  booking_community_snapshots
+}
+
+TableGroup feedback_group {
+  reviews
+  notifications
+}
+
+TableGroup messaging_group {
+  conversations
+  conversation_participants
+  messages
+  message_attachments
+}

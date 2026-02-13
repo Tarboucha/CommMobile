@@ -1,0 +1,39 @@
+{
+  "name": "kodo-mobile-backend",
+  "version": "1.0.0",
+  "description": "API backend for KoDo mobile app",
+  "private": true,
+  "scripts": {
+    "dev": "tsx custom-server.ts",
+    "dev:next": "next dev -p 3002",
+    "build": "next build",
+    "start": "NODE_ENV=production tsx custom-server.ts",
+    "start:next": "next start -p 3002",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.87.0",
+    "clsx": "^2.1.1",
+    "expo-server-sdk": "^4.0.0",
+    "lucide-react": "^0.562.0",
+    "next": "^16.0.7",
+    "pg": "^8.16.3",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "rrule": "^2.8.1",
+    "socket.io": "^4.8.1",
+    "tailwind-merge": "^3.4.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/pg": "^8.16.0",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "16.0.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}
