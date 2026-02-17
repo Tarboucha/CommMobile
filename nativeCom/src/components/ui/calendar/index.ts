@@ -1,10 +1,10 @@
 /**
  * Calendar Components
  *
- * Flexible, reusable calendar system for:
- * - Chef Calendar (manage schedules)
- * - Browse Date Picker (customer selects pickup slot)
- * - Future calendar-based features
+ * Generic, reusable calendar system for:
+ * - Community events and schedules
+ * - Browse date picker (customer selects pickup slot)
+ * - Any calendar-based feature
  */
 
 export { Calendar } from './calendar';

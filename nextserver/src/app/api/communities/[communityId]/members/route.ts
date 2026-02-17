@@ -38,7 +38,7 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
 
   let query = supabase
     .from("community_members")
-    .select("*")
+    .select("*, profiles!profile_id(id, first_name, last_name, avatar_url)")
     .eq("community_id", communityId);
 
   if (membership_status) {

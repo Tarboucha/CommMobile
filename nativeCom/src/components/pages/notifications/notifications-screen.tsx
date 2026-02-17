@@ -103,11 +103,28 @@ export function NotificationsScreen() {
         }
       }
 
-      // Navigate based on related entity
+      // Navigate based on notification type
+      const dataJson = notification.data_json as Record<string, string> | null;
+
+      if (
+        notification.notification_type === 'community_invite' &&
+        dataJson?.invitation_id &&
+        dataJson?.community_id
+      ) {
+        router.push(
+          `/community/${dataJson.community_id}/invitation?invitationId=${dataJson.invitation_id}`
+        );
+        return;
+      }
+
+      // Fallback: navigate based on related entity
       if (notification.related_community_id) {
         router.push(`/community/${notification.related_community_id}`);
       } else if (notification.related_booking_id) {
-        router.push(`/account/shared/bookings/${notification.related_booking_id}`);
+        router.push({
+          pathname: '/booking/[bookingId]',
+          params: { bookingId: notification.related_booking_id },
+        });
       } else if (notification.related_offering_id) {
         router.push(`/account/shared/offerings/${notification.related_offering_id}`);
       }

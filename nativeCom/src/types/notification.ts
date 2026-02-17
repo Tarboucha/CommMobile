@@ -8,6 +8,7 @@ export type NotificationUpdate = Database["public"]["Tables"]["notifications"]["
 // notification_type is a plain string in the DB, these are the expected values
 export const NotificationTypeValues = [
   // Booking notifications
+  "booking_new",
   "booking_confirmed",
   "booking_status_update",
   "booking_completed",

@@ -9,20 +9,26 @@ interface InfoTabProps {
   community: Community;
   communityId: string;
   isMember: boolean;
+  isOwnerOrAdmin: boolean;
+  canPostOfferings: boolean;
   user: { id: string } | null;
   actionLoading: boolean;
   onJoin: () => void;
   onLeave: () => void;
+  onInvite: () => void;
 }
 
 export function InfoTab({
   community,
   communityId,
   isMember,
+  isOwnerOrAdmin,
+  canPostOfferings,
   user,
   actionLoading,
   onJoin,
   onLeave,
+  onInvite,
 }: InfoTabProps) {
   const accessLabel =
     community.access_type === 'open'
@@ -85,6 +91,34 @@ export function InfoTab({
         </View>
         <Ionicons name="chevron-forward" size={18} color="#78716C" />
       </Pressable>
+
+      {/* Invite Members */}
+      {isMember && (isOwnerOrAdmin || community.allow_member_invites) && (
+        <Pressable
+          className="flex-row items-center justify-between p-4 rounded-xl border border-border bg-card mb-4 active:bg-muted/50"
+          onPress={onInvite}
+        >
+          <View className="flex-row items-center">
+            <Ionicons name="person-add-outline" size={20} color="#78716C" />
+            <Text className="text-sm font-medium text-foreground ml-3">Invite Members</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#78716C" />
+        </Pressable>
+      )}
+
+      {/* Post Offering */}
+      {isMember && canPostOfferings && (
+        <Pressable
+          className="flex-row items-center justify-between p-4 rounded-xl border border-border bg-card mb-4 active:bg-muted/50"
+          onPress={() => router.push(`/community/${communityId}/offerings/new` as Href)}
+        >
+          <View className="flex-row items-center">
+            <Ionicons name="add-circle-outline" size={20} color="#78716C" />
+            <Text className="text-sm font-medium text-foreground ml-3">Post an Offering</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#78716C" />
+        </Pressable>
+      )}
 
       {/* Action Button */}
       {user && (

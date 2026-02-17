@@ -85,31 +85,28 @@ export const POST = withAuth(async (user, request: NextRequest) => {
     }
   }
 
-  // Create new direct conversation
-  const { data: conversation, error: createError } = await supabase
-    .from("conversations")
-    .insert({
-      conversation_type: "direct" as const,
-      created_by_profile_id: user.id,
-    })
-    .select("*")
-    .single();
+  // Use SECURITY DEFINER function to atomically create conversation + participants
+  // (Bypasses chicken-and-egg: INSERT needs no participants, but SELECT policy requires them)
+  const { data: result, error: rpcError } = await supabase.rpc(
+    "create_direct_conversation",
+    { p_other_profile_id: other_profile_id }
+  );
 
-  if (createError || !conversation) {
-    console.error("Failed to create direct conversation:", createError);
+  if (rpcError || !result) {
+    console.error("Failed to create direct conversation:", rpcError);
     return ApiErrors.serverError();
   }
 
-  // Add both users as participants
-  const { error: participantError } = await supabase
-    .from("conversation_participants")
-    .insert([
-      { conversation_id: conversation.id, profile_id: user.id },
-      { conversation_id: conversation.id, profile_id: other_profile_id },
-    ]);
+  // Fetch the full conversation (now visible since participants exist)
+  const { data: conversation } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("id", result)
+    .single();
 
-  if (participantError) {
-    console.error("Failed to add conversation participants:", participantError);
+  if (!conversation) {
+    console.error("Failed to fetch newly created conversation");
+    return ApiErrors.serverError();
   }
 
   return successResponse({ conversation }, undefined, 201);

@@ -126,6 +126,49 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.serverError();
   }
 
+  // Resolve invited_profile_id from email if not provided directly
+  let invitedProfileId = invitation.invited_profile_id;
+
+  if (!invitedProfileId && invitation.invited_email) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", invitation.invited_email)
+      .single();
+
+    if (profile) {
+      invitedProfileId = profile.id;
+      await supabase
+        .from("community_invitations")
+        .update({ invited_profile_id: profile.id })
+        .eq("id", invitation.id);
+    }
+  }
+
+  // Send notification to the invitee if we have their profile ID
+  if (invitedProfileId) {
+    const { data: community } = await supabase
+      .from("communities")
+      .select("community_name")
+      .eq("id", communityId)
+      .single();
+
+    const communityName = community?.community_name || "a community";
+
+    await supabase.from("notifications").insert({
+      profile_id: invitedProfileId,
+      notification_type: "community_invite",
+      title: "Community Invitation",
+      body: `You've been invited to join "${communityName}"`,
+      related_community_id: communityId,
+      data_json: {
+        invitation_id: invitation.id,
+        community_id: communityId,
+        invited_by_profile_id: user.id,
+      },
+    });
+  }
+
   return successResponse<CommunityInvitationResponse>(
     { invitation },
     undefined,

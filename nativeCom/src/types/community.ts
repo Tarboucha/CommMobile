@@ -6,6 +6,7 @@ export type CommunityAccessType = 'open' | 'request_to_join' | 'invite_only';
 export type MemberRole = 'owner' | 'admin' | 'moderator' | 'member';
 export type MembershipStatus = 'pending' | 'active' | 'removed' | 'left';
 export type JoinMethod = 'invite_link' | 'direct_invite' | 'request';
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'expired';
 
 export interface Community {
   id: string;
@@ -28,6 +29,13 @@ export interface Community {
   deleted_at: string | null;
 }
 
+export interface MemberProfile {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+}
+
 export interface CommunityMember {
   id: string;
   community_id: string;
@@ -48,6 +56,7 @@ export interface CommunityMember {
   last_activity_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  profiles?: MemberProfile | null;
 }
 
 // ============================================================================
@@ -63,6 +72,44 @@ export interface PaginationMeta {
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: PaginationMeta;
+}
+
+export interface CommunityInvitation {
+  id: string;
+  community_id: string;
+  invited_by_profile_id: string;
+  invited_profile_id: string | null;
+  invited_email: string | null;
+  invitation_token: string;
+  invitation_message: string | null;
+  invitation_status: InvitationStatus | null;
+  max_uses: number | null;
+  current_uses: number | null;
+  expires_at: string;
+  accepted_at: string | null;
+  declined_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateInvitationInput {
+  invited_profile_id?: string;
+  invited_email?: string;
+  invitation_message?: string;
+  max_uses?: number;
+  expires_in_days?: number;
+}
+
+export interface InviteLinkInfo {
+  community: {
+    id: string;
+    community_name: string;
+    community_description: string | null;
+    current_members_count: number | null;
+    max_members: number | null;
+    access_type: CommunityAccessType | null;
+  };
+  is_already_member: boolean;
 }
 
 export interface CreateCommunityInput {

@@ -1,14 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   FlatList,
   RefreshControl,
   ActivityIndicator,
+  Pressable,
+  Image,
+  Alert,
 } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
 import { getCommunityMembers } from '@/lib/api/communities';
+import { getOrCreateDirectConversation } from '@/lib/api/chat';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import type { CommunityMember, MemberRole } from '@/types/community';
 
 const ROLE_COLORS: Record<string, string> = {
@@ -30,27 +35,72 @@ function RoleBadge({ role }: { role: MemberRole | null }) {
   );
 }
 
-function MemberItem({ member }: { member: CommunityMember }) {
+function getMemberName(member: CommunityMember): string {
+  if (member.profiles) {
+    const { first_name, last_name } = member.profiles;
+    if (first_name || last_name) {
+      return [first_name, last_name].filter(Boolean).join(' ');
+    }
+  }
+  return member.profile_id.slice(0, 8) + '...';
+}
+
+function MemberItem({
+  member,
+  currentUserId,
+  onMessage,
+}: {
+  member: CommunityMember;
+  currentUserId: string | null;
+  onMessage: (member: CommunityMember) => void;
+}) {
+  const isSelf = currentUserId === member.profile_id;
+  const name = getMemberName(member);
+
   return (
     <View className="mx-4 mb-2 flex-row items-center p-3 rounded-xl border border-border bg-card">
-      <View className="w-10 h-10 rounded-full bg-primary/10 justify-center items-center mr-3">
-        <Ionicons name="person" size={18} color="#660000" />
-      </View>
+      {member.profiles?.avatar_url ? (
+        <Image
+          source={{ uri: member.profiles.avatar_url }}
+          className="w-10 h-10 rounded-full mr-3"
+        />
+      ) : (
+        <View className="w-10 h-10 rounded-full bg-primary/10 justify-center items-center mr-3">
+          <Ionicons name="person" size={18} color="#660000" />
+        </View>
+      )}
       <View className="flex-1">
-        <Text className="text-sm font-medium text-foreground">
-          {member.profile_id.slice(0, 8)}...
-        </Text>
+        <View className="flex-row items-center gap-2">
+          <Text className="text-sm font-medium text-foreground">
+            {name}
+          </Text>
+          {isSelf && (
+            <Text className="text-xs text-muted-foreground">(You)</Text>
+          )}
+        </View>
         <Text className="text-xs text-muted-foreground">
           Joined {member.created_at ? new Date(member.created_at).toLocaleDateString() : 'N/A'}
         </Text>
       </View>
-      <RoleBadge role={member.member_role} />
+      <View className="flex-row items-center gap-2">
+        <RoleBadge role={member.member_role} />
+        {!isSelf && (
+          <Pressable
+            className="w-9 h-9 rounded-full bg-primary/10 justify-center items-center"
+            onPress={() => onMessage(member)}
+          >
+            <Ionicons name="chatbubble-outline" size={16} color="#660000" />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
 
 export default function CommunityMembersScreen() {
   const { communityId } = useLocalSearchParams<{ communityId: string }>();
+  const router = useRouter();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [members, setMembers] = useState<CommunityMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -89,6 +139,20 @@ export default function CommunityMembersScreen() {
     }
   }
 
+  const handleMessage = useCallback(async (member: CommunityMember) => {
+    try {
+      const conversation = await getOrCreateDirectConversation(member.profile_id);
+      const name = getMemberName(member);
+      router.push({
+        pathname: '/conversations/[conversationId]',
+        params: { conversationId: conversation.id, name },
+      });
+    } catch (err) {
+      console.error('Failed to start conversation:', err);
+      Alert.alert('Error', 'Could not start conversation. Please try again.');
+    }
+  }, [router]);
+
   if (isLoading) {
     return (
       <>
@@ -107,7 +171,13 @@ export default function CommunityMembersScreen() {
         className="flex-1 bg-background"
         data={members}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <MemberItem member={item} />}
+        renderItem={({ item }) => (
+          <MemberItem
+            member={item}
+            currentUserId={userId}
+            onMessage={handleMessage}
+          />
+        )}
         contentContainerStyle={{ paddingTop: 12, paddingBottom: 24 }}
         refreshControl={
           <RefreshControl

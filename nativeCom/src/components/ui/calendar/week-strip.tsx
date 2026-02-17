@@ -1,7 +1,6 @@
 import { useRef, useEffect } from 'react';
 import { View, Pressable, ScrollView, Dimensions } from 'react-native';
 import { Text } from '@/components/ui/text';
-import type { CalendarSlotsMap } from '@/types/availability';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DAY_WIDTH = (SCREEN_WIDTH - 32) / 7;
@@ -13,22 +12,20 @@ export interface WeekStripProps {
   currentDate: Date;
   /** Selected date (YYYY-MM-DD) */
   selectedDate: string;
-  /** Map of date -> slot data for indicators */
-  slotsByDate: CalendarSlotsMap;
+  /** Map of date -> event count for indicators */
+  eventCounts?: Map<string, number>;
   /** Called when user selects a day */
   onDaySelect: (date: string) => void;
 }
 
-type DayStatus = 'available' | 'partial' | 'soldOut' | null;
-
 /**
  * Week Strip Component
- * Horizontal scrollable week view with slot indicators
+ * Horizontal scrollable week view with event indicators
  */
 export function WeekStrip({
   currentDate,
   selectedDate,
-  slotsByDate,
+  eventCounts,
   onDaySelect,
 }: WeekStripProps) {
   const scrollRef = useRef<ScrollView>(null);
@@ -90,27 +87,6 @@ export function WeekStrip({
     return weeks;
   };
 
-  // Get status indicator for a day
-  const getDayStatus = (date: string): DayStatus => {
-    const dayData = slotsByDate.get(date);
-    if (!dayData || dayData.slots.length === 0) {
-      return null;
-    }
-
-    if (dayData.hasCancelled && dayData.slots.every((s) => s.is_cancelled)) {
-      return 'soldOut';
-    }
-
-    const { totalAvailable, totalSold } = dayData;
-    if (totalSold === 0) {
-      return 'available';
-    } else if (totalSold >= totalAvailable) {
-      return 'soldOut';
-    } else {
-      return 'partial';
-    }
-  };
-
   const weeks = getWeeksInMonth();
 
   const selectedWeekIndex = weeks.findIndex((week) =>
@@ -149,8 +125,7 @@ export function WeekStrip({
           <View key={weekIndex} style={{ width: SCREEN_WIDTH }} className="flex-row px-4">
             {week.map((dayInfo) => {
               const isSelected = dayInfo.date === selectedDate;
-              const status = getDayStatus(dayInfo.date);
-              const slotCount = slotsByDate.get(dayInfo.date)?.slots.length || 0;
+              const count = eventCounts?.get(dayInfo.date) ?? 0;
 
               return (
                 <Pressable
@@ -184,46 +159,16 @@ export function WeekStrip({
                     </Text>
                   </View>
 
-                  {/* Slot Indicators */}
+                  {/* Event Indicators */}
                   <View className="flex-row items-center gap-0.5 h-3">
-                    {slotCount > 0 && (
+                    {count > 0 && (
                       <>
-                        <View
-                          className={`w-2 h-2 rounded-full ${
-                            status === 'available'
-                              ? 'bg-emerald-500'
-                              : status === 'partial'
-                                ? 'bg-amber-500'
-                                : status === 'soldOut'
-                                  ? 'bg-red-500'
-                                  : 'bg-gray-400'
-                          }`}
-                        />
-                        {slotCount > 1 && (
-                          <View
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              status === 'available'
-                                ? 'bg-emerald-400'
-                                : status === 'partial'
-                                  ? 'bg-amber-400'
-                                  : status === 'soldOut'
-                                    ? 'bg-red-400'
-                                    : 'bg-gray-300'
-                            }`}
-                          />
+                        <View className="w-2 h-2 rounded-full bg-primary" />
+                        {count > 1 && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-primary/70" />
                         )}
-                        {slotCount > 2 && (
-                          <View
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              status === 'available'
-                                ? 'bg-emerald-300'
-                                : status === 'partial'
-                                  ? 'bg-amber-300'
-                                  : status === 'soldOut'
-                                    ? 'bg-red-300'
-                                    : 'bg-gray-200'
-                            }`}
-                          />
+                        {count > 2 && (
+                          <View className="w-1.5 h-1.5 rounded-full bg-primary/40" />
                         )}
                       </>
                     )}

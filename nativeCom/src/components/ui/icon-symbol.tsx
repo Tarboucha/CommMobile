@@ -21,6 +21,7 @@ const MAPPING = {
   'person.3.fill': 'groups',
   'person.fill': 'person',
   'heart.fill': 'favorite',
+  'calendar': 'calendar-today',
   'bubble.left.and.bubble.right.fill': 'chat',
   // Actions
   'paperplane.fill': 'send',

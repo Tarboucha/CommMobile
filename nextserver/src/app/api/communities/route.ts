@@ -90,17 +90,33 @@ export const POST = withAuth(async (user, request: NextRequest) => {
 
   const supabase = await createClient();
 
-  const { data: community, error } = await supabase
+  // Insert without .select() to avoid RETURNING clause RLS timing issue.
+  // The AFTER INSERT trigger adds the creator as owner, but RETURNING
+  // evaluates before the trigger runs — so non-open communities fail the
+  // SELECT policy. We split into insert + separate select instead.
+  const { error: insertError } = await supabase
     .from("communities")
     .insert({
       ...validation.data,
       created_by_profile_id: user.id,
-    })
-    .select()
+    });
+
+  if (insertError) {
+    console.error("Error creating community:", insertError);
+    return ApiErrors.serverError();
+  }
+
+  // Now the trigger has run and the creator is a member — SELECT policy passes.
+  const { data: community, error: selectError } = await supabase
+    .from("communities")
+    .select("*")
+    .eq("created_by_profile_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .single();
 
-  if (error) {
-    console.error("Error creating community:", error);
+  if (selectError || !community) {
+    console.error("Error fetching created community:", selectError);
     return ApiErrors.serverError();
   }
 

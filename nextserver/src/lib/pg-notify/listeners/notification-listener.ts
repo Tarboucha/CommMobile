@@ -52,7 +52,14 @@ export const notificationListener: NotificationHandler<NotificationTriggerPayloa
         profileId,
         message.title,
         message.body,
-        { type: payload.notification_type },
+        {
+          type: payload.notification_type,
+          notification_id: payload.notification_id,
+          ...(payload.related_booking_id && { booking_id: payload.related_booking_id }),
+          ...(payload.related_community_id && { community_id: payload.related_community_id }),
+          ...(payload.related_offering_id && { offering_id: payload.related_offering_id }),
+          ...(typeof payload.data_json?.invitation_id === 'string' && { invitation_id: payload.data_json.invitation_id }),
+        },
         badgeCount
       )
       console.log(`[NotificationListener] Sent Push Notification to user:${profileId} (type: ${payload.notification_type}, badge: ${badgeCount})`)

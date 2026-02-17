@@ -25,6 +25,7 @@ export interface BookingCartItem {
   scheduleId: string | null;
   instanceDate: string | null;
   fulfillmentMethod: FulfillmentMethod;
+  deliveryFeeAmount: number | null;
 }
 
 interface CartState {

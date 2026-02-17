@@ -142,6 +142,10 @@ export async function sendPushToUser(
  */
 export const NOTIFICATION_MESSAGES: Record<string, { title: string; body: string }> = {
   // Booking notifications
+  booking_new: {
+    title: 'Neue Buchung',
+    body: 'Du hast eine neue Buchung erhalten',
+  },
   booking_confirmed: {
     title: 'Buchung bestätigt',
     body: 'Deine Buchung wurde bestätigt',

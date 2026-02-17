@@ -1,7 +1,7 @@
 import { View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
-import type { PaymentMethodSelectorProps } from '@/types/checkout';
+import type { PaymentMethodSelectorProps } from '@/types/booking';
 
 /**
  * PaymentMethodSelector - Reusable payment method selector

@@ -1,19 +1,25 @@
-import { View } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { Text } from '@/components/ui/text';
+import { useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 
-export default function BookingDetailsScreen() {
+/**
+ * Redirect to the real booking detail screen at /booking/[bookingId].
+ */
+export default function BookingDetailRedirect() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
 
+  useEffect(() => {
+    if (bookingId) {
+      router.replace({
+        pathname: '/booking/[bookingId]',
+        params: { bookingId },
+      });
+    }
+  }, [bookingId]);
+
   return (
-    <>
-      <Stack.Screen options={{ title: 'Booking Details' }} />
-      <View className="flex-1 bg-background justify-center items-center p-6 gap-4">
-        <Text className="text-2xl font-bold text-center">Booking Details</Text>
-        <Text className="text-base text-center text-muted-foreground">
-          Booking #{bookingId} — details will be shown here once implemented.
-        </Text>
-      </View>
-    </>
+    <View className="flex-1 bg-background justify-center items-center">
+      <ActivityIndicator size="large" />
+    </View>
   );
 }

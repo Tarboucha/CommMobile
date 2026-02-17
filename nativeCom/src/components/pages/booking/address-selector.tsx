@@ -6,7 +6,7 @@ import { Text } from '@/components/ui/text';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { getAddresses } from '@/lib/api/addresses';
 import type { Address } from '@/types/address';
-import type { AddressSelectorProps } from '@/types/checkout';
+import type { AddressSelectorProps } from '@/types/booking';
 import { handleError } from '@/lib/services/error-service';
 
 /**

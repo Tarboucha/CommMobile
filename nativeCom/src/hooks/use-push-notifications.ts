@@ -65,26 +65,40 @@ export function usePushNotifications(): UsePushNotificationsReturn {
 
     // Navigate based on notification type
     switch (data.type) {
-      case 'order_placed':
-      case 'order_confirmed':
-      case 'order_status_update':
-      case 'order_ready':
-      case 'order_delivered':
-        if (data.order_id) {
-          router.push(`/account/shared/orders/${data.order_id}`);
+      case 'community_invite':
+        if (data.community_id && data.invitation_id) {
+          router.push(
+            `/community/${data.community_id}/invitation?invitationId=${data.invitation_id}`
+          );
+        } else {
+          router.push('/notifications');
+        }
+        break;
+
+      case 'booking_new':
+      case 'booking_confirmed':
+      case 'booking_status_update':
+      case 'booking_ready':
+      case 'booking_completed':
+      case 'booking_cancelled':
+        if (data.booking_id) {
+          router.push({
+            pathname: '/booking/[bookingId]',
+            params: { bookingId: data.booking_id },
+          });
+        } else {
+          router.push('/notifications');
         }
         break;
 
       case 'new_review':
       case 'payment_received':
-      case 'new_meal_available':
-      case 'promotion':
       case 'system':
-        router.push('/account/notifications');
+        router.push('/notifications');
         break;
 
       default:
-        router.push('/account/notifications');
+        router.push('/notifications');
     }
   }, [lastNotificationResponse, router]);
 

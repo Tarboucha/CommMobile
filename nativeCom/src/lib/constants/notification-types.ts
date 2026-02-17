@@ -5,6 +5,12 @@ import type { NotificationType, NotificationTypeConfig } from '@/types/notificat
  */
 export const NOTIFICATION_TYPE_CONFIG: Record<NotificationType, NotificationTypeConfig> = {
   // Booking
+  booking_new: {
+    color: '#F59E0B',
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    badgeText: 'BN',
+    label: 'New Booking',
+  },
   booking_confirmed: {
     color: '#10B981',
     backgroundColor: 'rgba(16, 185, 129, 0.2)',

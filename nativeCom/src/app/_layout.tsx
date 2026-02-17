@@ -46,7 +46,8 @@ function RootNavigator() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="community/create" options={{ headerShown: false }} />
           <Stack.Screen name="community/[communityId]" options={{ headerShown: false }} />
-          <Stack.Screen name="checkout" options={{ headerShown: false }} />
+          <Stack.Screen name="booking" options={{ headerShown: false }} />
+          <Stack.Screen name="conversations" options={{ headerShown: false }} />
           <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
         </Stack>
         <StatusBar style="auto" />

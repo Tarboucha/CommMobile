@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { View, Pressable, ScrollView, Alert, Dimensions, Image } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Pressable, ScrollView, Alert, Dimensions, Image, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { router } from 'expo-router';
 import type { Href } from 'expo-router';
 import Animated, {
@@ -57,6 +57,8 @@ function DrawerMenuItem({ icon, label, onPress, variant = 'default' }: DrawerMen
 export function AppDrawer() {
   const { isOpen, closeDrawer } = useDrawer();
   const { user } = useAuthStore();
+  const [showJoinCode, setShowJoinCode] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState('');
 
   const progress = useSharedValue(0);
 
@@ -97,6 +99,20 @@ export function AppDrawer() {
         },
       ]);
     }, 100);
+  };
+
+  const handleJoinWithCode = () => {
+    const raw = joinCodeInput.trim();
+    if (!raw) return;
+
+    // Extract token from kodo://invite/{token} or use as raw token
+    const match = raw.match(/kodo:\/\/invite\/(.+)/);
+    const token = match ? match[1] : raw;
+
+    setShowJoinCode(false);
+    setJoinCodeInput('');
+    closeDrawer();
+    setTimeout(() => router.push(`/invite/${token}` as Href), 100);
   };
 
   const avatarUrl = user ? getPublicUrl(user.avatar_url) : null;
@@ -219,6 +235,11 @@ export function AppDrawer() {
                   onPress={() => navigateTo('/notifications')}
                 />
                 <DrawerMenuItem
+                  icon="link-outline"
+                  label="Join with Code"
+                  onPress={() => setShowJoinCode(true)}
+                />
+                <DrawerMenuItem
                   icon="lock-closed-outline"
                   label="Change Password"
                   onPress={() => navigateTo('/account/settings/password')}
@@ -246,6 +267,67 @@ export function AppDrawer() {
           )}
         </ScrollView>
       </Animated.View>
+
+      {/* Join with Code Modal */}
+      <Modal
+        visible={showJoinCode}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowJoinCode(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1"
+        >
+          <Pressable
+            className="flex-1 bg-black/50 justify-center items-center px-6"
+            onPress={() => setShowJoinCode(false)}
+          >
+            <Pressable
+              className="w-full bg-card rounded-2xl p-6 border border-border"
+              onPress={() => {}}
+            >
+              <Text className="text-lg font-bold text-foreground mb-2">
+                Join with Code
+              </Text>
+              <Text className="text-sm text-muted-foreground mb-4">
+                Paste the invite link you received to join a community.
+              </Text>
+              <TextInput
+                className="border border-border rounded-xl px-4 py-3 text-base text-foreground bg-background mb-4"
+                placeholder="kodo://invite/... or paste token"
+                placeholderTextColor="#78716C"
+                value={joinCodeInput}
+                onChangeText={setJoinCodeInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+              />
+              <View className="flex-row gap-3">
+                <Pressable
+                  className="flex-1 py-3 rounded-xl border border-border active:bg-muted/50"
+                  onPress={() => {
+                    setShowJoinCode(false);
+                    setJoinCodeInput('');
+                  }}
+                >
+                  <Text className="text-sm font-semibold text-foreground text-center">
+                    Cancel
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="flex-1 py-3 rounded-xl bg-primary active:bg-primary/80"
+                  onPress={handleJoinWithCode}
+                >
+                  <Text className="text-sm font-semibold text-primary-foreground text-center">
+                    Join
+                  </Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

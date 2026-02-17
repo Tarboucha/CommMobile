@@ -1,13 +1,8 @@
 import { View } from 'react-native';
 import { CalendarHeader } from './calendar-header';
 import { WeekStrip } from './week-strip';
-import type { CalendarSlotsMap, DaySlots } from '@/types/availability';
 
 export interface CalendarProps {
-  // Data
-  /** Map of date -> slot data */
-  slotsMap: CalendarSlotsMap;
-
   // State
   /** Currently selected date (YYYY-MM-DD) */
   selectedDate: string;
@@ -24,9 +19,13 @@ export interface CalendarProps {
   /** Maximum selectable date */
   maxDate?: Date;
 
+  // Data
+  /** Map of date -> event count for dot indicators */
+  eventCounts?: Map<string, number>;
+
   // Customization
-  /** Render function for day content (slots list, etc.) */
-  renderDayContent: (dayData: DaySlots | null, selectedDate: string) => React.ReactNode;
+  /** Render function for selected day content */
+  renderDayContent: (selectedDate: string) => React.ReactNode;
 
   // Optional header stats
   /** Number of schedules to show in header */
@@ -40,40 +39,29 @@ export interface CalendarProps {
 /**
  * Calendar Component
  *
- * Flexible calendar container that can be used for:
- * - Chef calendar (managing schedules)
- * - Browse date picker (selecting pickup time)
- * - Any calendar-based feature
- *
- * Uses render prop pattern for day content customization.
+ * Generic calendar with month navigation, week strip, and
+ * render prop for day content.
  *
  * @example
  * ```tsx
  * <Calendar
- *   slotsMap={slotsMap}
  *   selectedDate={selectedDate}
  *   onDateSelect={setSelectedDate}
  *   currentMonth={currentMonth}
  *   onMonthChange={setCurrentMonth}
- *   renderDayContent={(dayData, date) => (
- *     <DaySlotsPicker
- *       dayData={dayData}
- *       selectedDate={date}
- *       selectedSlot={selectedSlot}
- *       onSlotSelect={setSelectedSlot}
- *     />
- *   )}
+ *   eventCounts={eventCounts}
+ *   renderDayContent={(date) => <MyDayView date={date} />}
  * />
  * ```
  */
 export function Calendar({
-  slotsMap,
   selectedDate,
   onDateSelect,
   currentMonth,
   onMonthChange,
   minDate,
   maxDate,
+  eventCounts,
   renderDayContent,
   scheduleCount,
   todaySlotCount,
@@ -83,7 +71,6 @@ export function Calendar({
   const handlePrevMonth = () => {
     const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
 
-    // Check min date
     if (minDate) {
       const minMonthStart = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
       if (prevMonth < minMonthStart) return;
@@ -95,7 +82,6 @@ export function Calendar({
   const handleNextMonth = () => {
     const nextMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
 
-    // Check max date
     if (maxDate) {
       const maxMonthStart = new Date(maxDate.getFullYear(), maxDate.getMonth(), 1);
       if (nextMonth > maxMonthStart) return;
@@ -103,9 +89,6 @@ export function Calendar({
 
     onMonthChange(nextMonth);
   };
-
-  // Get data for selected day
-  const selectedDayData = slotsMap.get(selectedDate) || null;
 
   return (
     <View className="flex-1">
@@ -123,12 +106,12 @@ export function Calendar({
       <WeekStrip
         currentDate={currentMonth}
         selectedDate={selectedDate}
-        slotsByDate={slotsMap}
+        eventCounts={eventCounts}
         onDaySelect={onDateSelect}
       />
 
       {/* Day Content (provided via render prop) */}
-      {renderDayContent(selectedDayData, selectedDate)}
+      {renderDayContent(selectedDate)}
     </View>
   );
 }

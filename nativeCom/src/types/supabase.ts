@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       addresses: {
@@ -607,6 +582,7 @@ export type Database = {
           payment_reference: string | null
           payment_status: Database["public"]["Enums"]["payment_status"] | null
           platform_fee_amount: number | null
+          provider_id: string
           ready_at: string | null
           service_fee_amount: number | null
           special_instructions: string | null
@@ -635,6 +611,7 @@ export type Database = {
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
           platform_fee_amount?: number | null
+          provider_id: string
           ready_at?: string | null
           service_fee_amount?: number | null
           special_instructions?: string | null
@@ -663,6 +640,7 @@ export type Database = {
           payment_reference?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
           platform_fee_amount?: number | null
+          provider_id?: string
           ready_at?: string | null
           service_fee_amount?: number | null
           special_instructions?: string | null
@@ -698,6 +676,13 @@ export type Database = {
             columns: ["delivery_address_id"]
             isOneToOne: false
             referencedRelation: "addresses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -972,6 +957,116 @@ export type Database = {
             columns: ["removed_by_profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      community_pinned_items: {
+        Row: {
+          community_id: string
+          id: string
+          pinned_at: string | null
+          pinned_by_profile_id: string
+          pinned_offering_id: string | null
+          pinned_post_id: string | null
+        }
+        Insert: {
+          community_id: string
+          id?: string
+          pinned_at?: string | null
+          pinned_by_profile_id: string
+          pinned_offering_id?: string | null
+          pinned_post_id?: string | null
+        }
+        Update: {
+          community_id?: string
+          id?: string
+          pinned_at?: string | null
+          pinned_by_profile_id?: string
+          pinned_offering_id?: string | null
+          pinned_post_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_pinned_items_community_id_fkey"
+            columns: ["community_id"]
+            isOneToOne: true
+            referencedRelation: "communities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_pinned_items_pinned_by_profile_id_fkey"
+            columns: ["pinned_by_profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_pinned_items_pinned_offering_id_fkey"
+            columns: ["pinned_offering_id"]
+            isOneToOne: false
+            referencedRelation: "offerings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_pinned_items_pinned_post_id_fkey"
+            columns: ["pinned_post_id"]
+            isOneToOne: false
+            referencedRelation: "community_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      community_posts: {
+        Row: {
+          author_id: string
+          body: string
+          community_id: string
+          created_at: string | null
+          deleted_at: string | null
+          id: string
+          image_url: string | null
+          link_url: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          author_id: string
+          body: string
+          community_id: string
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          link_url?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          author_id?: string
+          body?: string
+          community_id?: string
+          created_at?: string | null
+          deleted_at?: string | null
+          id?: string
+          image_url?: string | null
+          link_url?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_posts_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_posts_community_id_fkey"
+            columns: ["community_id"]
+            isOneToOne: false
+            referencedRelation: "communities"
             referencedColumns: ["id"]
           },
         ]
@@ -1912,6 +2007,18 @@ export type Database = {
             }
             Returns: string
           }
+      create_booking_with_items: {
+        Args: { p_booking: Json; p_items: Json }
+        Returns: string
+      }
+      create_booking_conversation: {
+        Args: { p_booking_id: string; p_creator_profile_id: string }
+        Returns: string
+      }
+      create_direct_conversation: {
+        Args: { p_other_profile_id: string }
+        Returns: string
+      }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
@@ -2072,6 +2179,14 @@ export type Database = {
         Args: { p_community_id: string }
         Returns: boolean
       }
+      is_conversation_participant: {
+        Args: { p_conversation_id: string }
+        Returns: boolean
+      }
+      join_community_via_invite_link: {
+        Args: { p_token: string }
+        Returns: Json
+      }
       longtransactionsenabled: { Args: never; Returns: boolean }
       populate_geometry_columns:
         | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
@@ -2113,6 +2228,10 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      shares_community_with_current_user: {
+        Args: { p_profile_id: string }
+        Returns: boolean
+      }
       st_3dclosestpoint: {
         Args: { geom1: unknown; geom2: unknown }
         Returns: unknown
@@ -2723,7 +2842,7 @@ export type Database = {
       join_method: "invite_link" | "direct_invite" | "request"
       member_role: "owner" | "admin" | "moderator" | "member"
       membership_status: "pending" | "active" | "removed" | "left"
-      offering_category: "food" | "product" | "service" | "share" | "event"
+      offering_category: "product" | "service" | "share" | "event"
       payment_method: "in_app" | "cash" | "external"
       payment_status: "pending" | "paid" | "refunded" | "cancelled"
       price_type: "fixed" | "negotiable" | "free" | "donation"
@@ -2867,9 +2986,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       address_type: ["home", "work", "other"],
@@ -2889,7 +3005,7 @@ export const Constants = {
       join_method: ["invite_link", "direct_invite", "request"],
       member_role: ["owner", "admin", "moderator", "member"],
       membership_status: ["pending", "active", "removed", "left"],
-      offering_category: ["food", "product", "service", "share", "event"],
+      offering_category: ["product", "service", "share", "event"],
       payment_method: ["in_app", "cash", "external"],
       payment_status: ["pending", "paid", "refunded", "cancelled"],
       price_type: ["fixed", "negotiable", "free", "donation"],
