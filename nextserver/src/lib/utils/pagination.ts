@@ -107,11 +107,11 @@ export function buildPaginatedResponse<
     const lastItem = data[data.length - 1];
     const cursorValue =
       orderColumn && orderColumn !== "created_at"
-        ? (lastItem as any)[orderColumn]
+        ? (lastItem as Record<string, unknown>)[orderColumn]
         : lastItem.created_at;
 
     if (cursorValue) {
-      next_cursor = encodeCursor(cursorValue, lastItem.id);
+      next_cursor = encodeCursor(String(cursorValue), lastItem.id);
     }
   }
 

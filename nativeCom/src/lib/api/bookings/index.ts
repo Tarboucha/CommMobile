@@ -20,7 +20,7 @@ export async function getMyBookings(
   const response = await fetchAPI<{
     success: boolean;
     data: { bookings: BookingListItem[] };
-  }>(`/api/bookings${params}`, { method: 'GET' });
+  }>(`/api/v1/bookings${params}`, { method: 'GET' });
 
   return response.data.bookings;
 }
@@ -35,7 +35,7 @@ export async function createBooking(
   const response = await fetchAPI<{
     success: boolean;
     data: { booking: BookingResponse };
-  }>('/api/bookings', {
+  }>('/api/v1/bookings', {
     method: 'POST',
     body: JSON.stringify(payload),
     retry: false,
@@ -51,7 +51,7 @@ export async function getBooking(bookingId: string): Promise<BookingDetail> {
   const response = await fetchAPI<{
     success: boolean;
     data: { booking: BookingDetail };
-  }>(`/api/bookings/${bookingId}`, { method: 'GET' });
+  }>(`/api/v1/bookings/${bookingId}`, { method: 'GET' });
 
   return response.data.booking;
 }
@@ -67,7 +67,7 @@ export async function updateBookingStatus(
   const response = await fetchAPI<{
     success: boolean;
     data: { booking: BookingDetail };
-  }>(`/api/bookings/${bookingId}`, {
+  }>(`/api/v1/bookings/${bookingId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -87,7 +87,7 @@ export async function returnLoanItem(
   const response = await fetchAPI<{
     success: boolean;
     data: { booking: BookingDetail };
-  }>(`/api/bookings/${bookingId}/items/${itemId}/return`, {
+  }>(`/api/v1/bookings/${bookingId}/items/${itemId}/return`, {
     method: 'POST',
     retry: false,
   });
@@ -105,7 +105,7 @@ export async function submitOffer(
   const response = await fetchAPI<{
     success: boolean;
     data: { offer: PriceOffer; message_id: string; agreed_amount?: number };
-  }>(`/api/bookings/${bookingId}/offers`, {
+  }>(`/api/v1/bookings/${bookingId}/offers`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -120,7 +120,7 @@ export async function getOffers(bookingId: string): Promise<PriceOffer[]> {
   const response = await fetchAPI<{
     success: boolean;
     data: { offers: PriceOffer[] };
-  }>(`/api/bookings/${bookingId}/offers`, { method: 'GET' });
+  }>(`/api/v1/bookings/${bookingId}/offers`, { method: 'GET' });
 
   return response.data.offers;
 }

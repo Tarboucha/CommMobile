@@ -19,7 +19,7 @@ export async function getCommunities(limit = 20, after?: string): Promise<Pagina
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<Community>;
-  }>(`/api/communities?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -39,7 +39,7 @@ export async function browseCommunities(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<Community>;
-  }>(`/api/communities/browse?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities/browse?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -51,7 +51,7 @@ export async function getCommunity(communityId: string): Promise<Community> {
   const response = await fetchAPI<{
     success: boolean;
     data: { community: Community };
-  }>(`/api/communities/${communityId}`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}`, { method: 'GET' });
 
   return response.data.community;
 }
@@ -63,7 +63,7 @@ export async function createCommunity(data: CreateCommunityInput): Promise<Commu
   const response = await fetchAPI<{
     success: boolean;
     data: { community: Community };
-  }>('/api/communities', {
+  }>('/api/v1/communities', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -81,7 +81,7 @@ export async function updateCommunity(
   const response = await fetchAPI<{
     success: boolean;
     data: { community: Community };
-  }>(`/api/communities/${communityId}`, {
+  }>(`/api/v1/communities/${communityId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -93,7 +93,7 @@ export async function updateCommunity(
  * Delete a community (owner only, soft delete)
  */
 export async function deleteCommunity(communityId: string): Promise<void> {
-  await fetchAPI(`/api/communities/${communityId}`, { method: 'DELETE' });
+  await fetchAPI(`/api/v1/communities/${communityId}`, { method: 'DELETE' });
 }
 
 /**
@@ -103,7 +103,7 @@ export async function joinCommunity(communityId: string): Promise<CommunityMembe
   const response = await fetchAPI<{
     success: boolean;
     data: { member: CommunityMember };
-  }>(`/api/communities/${communityId}/members`, { method: 'POST' });
+  }>(`/api/v1/communities/${communityId}/members`, { method: 'POST' });
 
   return response.data.member;
 }
@@ -112,7 +112,7 @@ export async function joinCommunity(communityId: string): Promise<CommunityMembe
  * Leave a community
  */
 export async function leaveCommunity(communityId: string): Promise<void> {
-  await fetchAPI(`/api/communities/${communityId}/leave`, { method: 'POST' });
+  await fetchAPI(`/api/v1/communities/${communityId}/leave`, { method: 'POST' });
 }
 
 /**
@@ -129,7 +129,7 @@ export async function getCommunityMembers(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<CommunityMember>;
-  }>(`/api/communities/${communityId}/members?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}/members?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -148,7 +148,7 @@ export async function createInvitation(
   const response = await fetchAPI<{
     success: boolean;
     data: { invitation: CommunityInvitation };
-  }>(`/api/communities/${communityId}/invitations`, {
+  }>(`/api/v1/communities/${communityId}/invitations`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -167,7 +167,7 @@ export async function respondToInvitation(
   const response = await fetchAPI<{
     success: boolean;
     data: { invitation: CommunityInvitation };
-  }>(`/api/communities/${communityId}/invitations/${invitationId}`, {
+  }>(`/api/v1/communities/${communityId}/invitations/${invitationId}`, {
     method: 'PATCH',
     body: JSON.stringify({ action }),
   });
@@ -188,7 +188,7 @@ export async function generateInviteLink(
   const response = await fetchAPI<{
     success: boolean;
     data: { token: string; expires_at: string };
-  }>(`/api/communities/${communityId}/invite-link`, { method: 'POST' });
+  }>(`/api/v1/communities/${communityId}/invite-link`, { method: 'POST' });
 
   return response.data;
 }
@@ -197,7 +197,7 @@ export async function generateInviteLink(
  * Revoke the community invite link
  */
 export async function revokeInviteLink(communityId: string): Promise<void> {
-  await fetchAPI(`/api/communities/${communityId}/invite-link`, { method: 'DELETE' });
+  await fetchAPI(`/api/v1/communities/${communityId}/invite-link`, { method: 'DELETE' });
 }
 
 /**
@@ -207,7 +207,7 @@ export async function getInviteLinkInfo(token: string): Promise<InviteLinkInfo> 
   const response = await fetchAPI<{
     success: boolean;
     data: InviteLinkInfo;
-  }>(`/api/invite/${token}`, { method: 'GET' });
+  }>(`/api/v1/invite/${token}`, { method: 'GET' });
 
   return response.data;
 }
@@ -221,7 +221,7 @@ export async function acceptInviteLink(
   const response = await fetchAPI<{
     success: boolean;
     data: { member: CommunityMember; already_member: boolean };
-  }>(`/api/invite/${token}`, { method: 'POST' });
+  }>(`/api/v1/invite/${token}`, { method: 'POST' });
 
   return response.data.member;
 }

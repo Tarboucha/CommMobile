@@ -11,7 +11,7 @@ export async function getCommunityConversation(
   const response = await fetchAPI<{
     success: boolean;
     data: { conversation: Conversation };
-  }>(`/api/communities/${communityId}/conversation`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}/conversation`, { method: 'GET' });
 
   return response.data.conversation;
 }
@@ -30,7 +30,7 @@ export async function getMessages(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<ChatMessage>;
-  }>(`/api/communities/${communityId}/conversation/messages?${params}`, {
+  }>(`/api/v1/communities/${communityId}/conversation/messages?${params}`, {
     method: 'GET',
   });
 
@@ -47,7 +47,7 @@ export async function sendMessage(
   const response = await fetchAPI<{
     success: boolean;
     data: { message: ChatMessage };
-  }>(`/api/communities/${communityId}/conversation/messages`, {
+  }>(`/api/v1/communities/${communityId}/conversation/messages`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   });
@@ -68,7 +68,7 @@ export async function getBookingConversation(
   const response = await fetchAPI<{
     success: boolean;
     data: { conversation: Conversation };
-  }>(`/api/bookings/${bookingId}/conversation`, { method: 'GET' });
+  }>(`/api/v1/bookings/${bookingId}/conversation`, { method: 'GET' });
 
   return response.data.conversation;
 }
@@ -86,7 +86,7 @@ export async function getOrCreateDirectConversation(
   const response = await fetchAPI<{
     success: boolean;
     data: { conversation: Conversation };
-  }>('/api/conversations/direct', {
+  }>('/api/v1/conversations/direct', {
     method: 'POST',
     body: JSON.stringify({ other_profile_id: otherProfileId }),
   });
@@ -112,7 +112,7 @@ export async function getConversationMessages(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<ChatMessage>;
-  }>(`/api/conversations/${conversationId}/messages?${params}`, {
+  }>(`/api/v1/conversations/${conversationId}/messages?${params}`, {
     method: 'GET',
   });
 
@@ -129,7 +129,7 @@ export async function sendConversationMessage(
   const response = await fetchAPI<{
     success: boolean;
     data: { message: ChatMessage };
-  }>(`/api/conversations/${conversationId}/messages`, {
+  }>(`/api/v1/conversations/${conversationId}/messages`, {
     method: 'POST',
     body: JSON.stringify({ content }),
   });
@@ -150,7 +150,7 @@ export async function listConversations(
   const response = await fetchAPI<{
     success: boolean;
     data: { conversations: ConversationListItem[] };
-  }>(`/api/conversations${query ? `?${query}` : ''}`, { method: 'GET' });
+  }>(`/api/v1/conversations${query ? `?${query}` : ''}`, { method: 'GET' });
 
   return response.data.conversations;
 }

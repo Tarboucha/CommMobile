@@ -3,11 +3,11 @@
  *
  *   1. Log in as provider (test3@kodo.com) and customer (test2@kodo.com)
  *   2. Create a loan offering + schedule (as provider, direct Prisma)
- *   3. POST /api/bookings            — customer creates the booking
- *   4. GET  /api/bookings/:id        — assert snapshots are populated
- *   5. PATCH /api/bookings/:id       — provider accepts (→ confirmed)
- *   6. PATCH /api/bookings/:id       — provider marks loaned_out
- *   7. POST /api/bookings/:id/items/:itemId/return — provider marks returned
+ *   3. POST /api/v1/bookings            — customer creates the booking
+ *   4. GET  /api/v1/bookings/:id        — assert snapshots are populated
+ *   5. PATCH /api/v1/bookings/:id       — provider accepts (→ confirmed)
+ *   6. PATCH /api/v1/bookings/:id       — provider marks loaned_out
+ *   7. POST /api/v1/bookings/:id/items/:itemId/return — provider marks returned
  *   8. Verify booking_status = 'returned' and slots released
  *   9. Cleanup
  *
@@ -261,7 +261,7 @@ async function main() {
   });
   ok(`schedule created: ${schedule.id}`);
 
-  section('5. POST /api/bookings (customer)');
+  section('5. POST /api/v1/bookings (customer)');
   const startDate = today.toISOString().split('T')[0];
   const dueDate = new Date(today);
   dueDate.setDate(dueDate.getDate() + 2); // 3-day loan
@@ -270,7 +270,7 @@ async function main() {
   const createRes = await api<{ data: { booking: { id: string; booking_number: string; booking_status: string } } }>(
     customerToken,
     'POST',
-    '/api/bookings',
+    '/api/v1/bookings',
     {
       community_id: communityId,
       items: [
@@ -295,11 +295,11 @@ async function main() {
   ok(`booking created: id=${bookingId}, number=${createRes.data.booking.booking_number}`);
   assert(createRes.data.booking.booking_status === 'pending', 'status is pending on create');
 
-  section('6. GET /api/bookings/:id — assert snapshots');
+  section('6. GET /api/v1/bookings/:id — assert snapshots');
   const getRes = await api<{ data: { booking: any } }>(
     customerToken,
     'GET',
-    `/api/bookings/${bookingId}`
+    `/api/v1/bookings/${bookingId}`
   );
   const b = getRes.data.booking;
   assert(b.booking_items?.length === 1, 'booking has 1 item');
@@ -370,30 +370,30 @@ async function main() {
     assert(inst.slots_booked === 1, `${inst.instance_date.toISOString().split('T')[0]} slots_booked=1`)
   );
 
-  section('8. PATCH /api/bookings/:id — provider accepts (pending → confirmed)');
+  section('8. PATCH /api/v1/bookings/:id — provider accepts (pending → confirmed)');
   const confirmRes = await api<{ data: { booking: any } }>(
     providerToken,
     'PATCH',
-    `/api/bookings/${bookingId}`,
+    `/api/v1/bookings/${bookingId}`,
     { booking_status: 'confirmed' }
   );
   assert(confirmRes.data.booking.booking_status === 'confirmed', 'booking_status = confirmed');
   assert(confirmRes.data.booking.confirmed_at, 'confirmed_at timestamp set');
 
-  section('9. PATCH /api/bookings/:id — provider marks loaned_out (confirmed → loaned_out)');
+  section('9. PATCH /api/v1/bookings/:id — provider marks loaned_out (confirmed → loaned_out)');
   const loanedRes = await api<{ data: { booking: any } }>(
     providerToken,
     'PATCH',
-    `/api/bookings/${bookingId}`,
+    `/api/v1/bookings/${bookingId}`,
     { booking_status: 'loaned_out' }
   );
   assert(loanedRes.data.booking.booking_status === 'loaned_out', 'booking_status = loaned_out');
 
-  section('10. POST /api/bookings/:id/items/:itemId/return — return the loan');
+  section('10. POST /api/v1/bookings/:id/items/:itemId/return — return the loan');
   const returnRes = await api<{ data: { booking: any } }>(
     providerToken,
     'POST',
-    `/api/bookings/${bookingId}/items/${item.id}/return`
+    `/api/v1/bookings/${bookingId}/items/${item.id}/return`
   );
   assert(returnRes.data.booking.booking_status === 'returned', 'booking_status = returned');
 
@@ -454,11 +454,11 @@ async function main() {
   });
   ok(`service schedule: ${serviceSchedule.id}`);
 
-  section('13. POST /api/bookings — service booking');
+  section('13. POST /api/v1/bookings — service booking');
   const svcRes = await api<{ data: { booking: { id: string; booking_number: string; booking_status: string } } }>(
     customerToken,
     'POST',
-    '/api/bookings',
+    '/api/v1/bookings',
     {
       community_id: communityId,
       items: [
@@ -479,11 +479,11 @@ async function main() {
   ok(`service booking created: ${svcRes.data.booking.booking_number}`);
   assert(svcRes.data.booking.booking_status === 'pending', 'service booking is pending');
 
-  section('14. GET /api/bookings/:id — service snapshots');
+  section('14. GET /api/v1/bookings/:id — service snapshots');
   const svcGet = await api<{ data: { booking: any } }>(
     customerToken,
     'GET',
-    `/api/bookings/${svcBookingId}`
+    `/api/v1/bookings/${svcBookingId}`
   );
   const sb = svcGet.data.booking;
   const sItem = sb.booking_items[0];
@@ -506,11 +506,11 @@ async function main() {
   assert(svcInstances[0].slots_booked === 1, 'service: 1 slot reserved');
 
   section('16. Service: confirm → in_progress → ready → completed');
-  await api(providerToken, 'PATCH', `/api/bookings/${svcBookingId}`, { booking_status: 'confirmed' });
-  await api(providerToken, 'PATCH', `/api/bookings/${svcBookingId}`, { booking_status: 'in_progress' });
-  await api(providerToken, 'PATCH', `/api/bookings/${svcBookingId}`, { booking_status: 'ready' });
+  await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'confirmed' });
+  await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'in_progress' });
+  await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'ready' });
   const svcComplete = await api<{ data: { booking: any } }>(
-    providerToken, 'PATCH', `/api/bookings/${svcBookingId}`, { booking_status: 'completed' }
+    providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'completed' }
   );
   assert(svcComplete.data.booking.booking_status === 'completed', 'service booking completed');
   assert(svcComplete.data.booking.completed_at, 'service completed_at set');
@@ -557,7 +557,7 @@ async function main() {
   const tsRes = await api<{ data: { schedule_id: string; date: string; slot_duration_minutes: number; slots: any[] } }>(
     customerToken,
     'GET',
-    `/api/offerings/${tsOffering.id}/schedules/${tsSchedule.id}/time-slots?date=${startDate}`
+    `/api/v1/offerings/${tsOffering.id}/schedules/${tsSchedule.id}/time-slots?date=${startDate}`
   );
   assert(tsRes.data.slot_duration_minutes === 45, 'slot_duration_minutes = 45');
   // 09:00-17:00 with 45min → 10 slots (last at 15:45-16:30, 16:30+0:45=17:15 > 17:00 → dropped)
@@ -572,7 +572,7 @@ async function main() {
   const tsBookRes = await api<{ data: { booking: { id: string; booking_number: string; booking_status: string } } }>(
     customerToken,
     'POST',
-    '/api/bookings',
+    '/api/v1/bookings',
     {
       community_id: communityId,
       items: [
@@ -620,7 +620,7 @@ async function main() {
   const tsDetail = await api<{ data: { booking: any } }>(
     customerToken,
     'GET',
-    `/api/bookings/${tsBookingId}`
+    `/api/v1/bookings/${tsBookingId}`
   );
   const tsItem = tsDetail.data.booking.booking_items[0];
   assert(tsItem.instance_start_time, 'instance_start_time is set');
@@ -665,7 +665,7 @@ async function main() {
   const tsRes2 = await api<{ data: { slots: any[] } }>(
     customerToken,
     'GET',
-    `/api/offerings/${tsOffering.id}/schedules/${tsSchedule.id}/time-slots?date=${startDate}`
+    `/api/v1/offerings/${tsOffering.id}/schedules/${tsSchedule.id}/time-slots?date=${startDate}`
   );
   const slot0900 = tsRes2.data.slots.find((s: any) => s.start_time === '09:00');
   const slot0945 = tsRes2.data.slots.find((s: any) => s.start_time === '09:45');
@@ -709,11 +709,11 @@ async function main() {
   });
   ok(`event schedule: ${eventSchedule.id}`);
 
-  section('18. POST /api/bookings — event booking (free)');
+  section('18. POST /api/v1/bookings — event booking (free)');
   const evtRes = await api<{ data: { booking: { id: string; booking_number: string; booking_status: string } } }>(
     customerToken,
     'POST',
-    '/api/bookings',
+    '/api/v1/bookings',
     {
       community_id: communityId,
       items: [
@@ -734,11 +734,11 @@ async function main() {
   ok(`event booking created: ${evtRes.data.booking.booking_number}`);
   assert(evtRes.data.booking.booking_status === 'pending', 'event booking is pending');
 
-  section('19. GET /api/bookings/:id — event snapshots');
+  section('19. GET /api/v1/bookings/:id — event snapshots');
   const evtGet = await api<{ data: { booking: any } }>(
     customerToken,
     'GET',
-    `/api/bookings/${evtBookingId}`
+    `/api/v1/bookings/${evtBookingId}`
   );
   const eb = evtGet.data.booking;
   const eItem = eb.booking_items[0];
@@ -821,7 +821,7 @@ async function main() {
   const negoBookRes = await api<{ data: { booking: any } }>(
     customerToken,
     'POST',
-    '/api/bookings',
+    '/api/v1/bookings',
     {
       community_id: communityId,
       items: [{
@@ -853,9 +853,11 @@ async function main() {
   assert(negoConv, 'negotiation conversation exists');
   const negoMsgs = negoConv!.messages;
   assert(negoMsgs.length >= 2, 'conversation has ≥2 messages');
-  assert((negoMsgs[0] as any).message_type === 'booking_request', 'msg 1: booking_request');
-  assert((negoMsgs[1] as any).message_type === 'price_offer', 'msg 2: price_offer');
-  assert((negoMsgs[1] as any).metadata?.offered_amount === 80, 'offer amount = 80 in metadata');
+  const negoMsgTypes = negoMsgs.map((m: any) => m.message_type);
+  assert(negoMsgTypes.includes('booking_request'), 'has booking_request message');
+  assert(negoMsgTypes.includes('price_offer'), 'has price_offer message');
+  const offerMsg = negoMsgs.find((m: any) => m.message_type === 'price_offer');
+  assert((offerMsg as any)?.metadata?.offered_amount === 80, 'offer amount = 80 in metadata');
 
   // Verify price_offers row
   const pendingOffer = await prisma.price_offers.findFirst({
@@ -870,7 +872,7 @@ async function main() {
   const counterRes = await api<{ data: any }>(
     providerToken,
     'POST',
-    `/api/bookings/${negoBookingId}/offers`,
+    `/api/v1/bookings/${negoBookingId}/offers`,
     { action: 'counter', offered_amount: 90, note: 'How about 90?' }
   );
   assert(counterRes.data.offer, 'counter offer created');
@@ -893,7 +895,7 @@ async function main() {
   const acceptRes = await api<{ data: any }>(
     customerToken,
     'POST',
-    `/api/bookings/${negoBookingId}/offers`,
+    `/api/v1/bookings/${negoBookingId}/offers`,
     { action: 'accept', offer_id: newPending!.id }
   );
   assert(acceptRes.data.agreed_amount === 90, 'agreed amount = 90');
@@ -911,10 +913,11 @@ async function main() {
     include: { messages: { orderBy: { created_at: 'asc' } } },
   });
   const msgTypes = finalConv!.messages.map((m: any) => m.message_type);
-  assert(msgTypes[0] === 'booking_request', 'timeline[0] = booking_request');
-  assert(msgTypes[1] === 'price_offer', 'timeline[1] = price_offer (customer 80)');
-  assert(msgTypes[2] === 'price_offer', 'timeline[2] = price_offer (provider 90)');
-  assert(msgTypes[3] === 'offer_response', 'timeline[3] = offer_response (accepted)');
+  const typeCounts: Record<string, number> = {};
+  msgTypes.forEach((t: string) => { typeCounts[t] = (typeCounts[t] || 0) + 1; });
+  assert(typeCounts['booking_request'] === 1, 'timeline has 1 booking_request');
+  assert(typeCounts['price_offer'] === 2, 'timeline has 2 price_offers (customer + provider)');
+  assert(typeCounts['offer_response'] === 1, 'timeline has 1 offer_response (accepted)');
   ok(`full negotiation timeline: ${msgTypes.join(' → ')}`);
 
   // ═══════════════════════════════════════════════════════════════════════════

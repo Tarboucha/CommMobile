@@ -20,7 +20,7 @@ export async function getAddresses(): Promise<{
   addresses: Address[];
   countInfo: AddressCountInfo;
 }> {
-  const response = await fetchAPI<{ success: boolean; data: AddressListResponse }>('/api/addresses', {
+  const response = await fetchAPI<{ success: boolean; data: AddressListResponse }>('/api/v1/addresses', {
     method: 'GET',
   });
 
@@ -39,7 +39,7 @@ export async function getAddresses(): Promise<{
 export async function createAddress(
   data: Omit<AddressInput, 'latitude' | 'longitude' | 'profile_id'>
 ): Promise<Address> {
-  const response = await fetchAPI<{ success: boolean; data: AddressResponse }>('/api/addresses', {
+  const response = await fetchAPI<{ success: boolean; data: AddressResponse }>('/api/v1/addresses', {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -59,7 +59,7 @@ export async function updateAddress(
   data: Partial<AddressUpdateInput> & { is_business_address?: boolean }
 ): Promise<Address> {
   const response = await fetchAPI<{ success: boolean; data: AddressResponse }>(
-    `/api/addresses/${addressId}`,
+    `/api/v1/addresses/${addressId}`,
     {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -75,7 +75,7 @@ export async function updateAddress(
  * @returns Promise that resolves when deleted
  */
 export async function deleteAddress(addressId: string): Promise<void> {
-  await fetchAPI(`/api/addresses/${addressId}`, {
+  await fetchAPI(`/api/v1/addresses/${addressId}`, {
     method: 'DELETE',
   });
 }

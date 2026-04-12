@@ -38,7 +38,7 @@ export async function getNotifications(
   }
 
   const queryString = queryParams.toString();
-  const endpoint = queryString ? `/api/notifications?${queryString}` : '/api/notifications';
+  const endpoint = queryString ? `/api/v1/notifications?${queryString}` : '/api/v1/notifications';
 
   const response = await fetchAPI<{
     success: boolean;
@@ -57,7 +57,7 @@ export async function getUnreadCount(): Promise<number> {
   const response = await fetchAPI<{
     success: boolean;
     data: NotificationUnreadCountResponse;
-  }>('/api/notifications/unread-count', {
+  }>('/api/v1/notifications/unread-count', {
     method: 'GET',
   });
 
@@ -73,7 +73,7 @@ export async function markNotificationAsRead(
   const response = await fetchAPI<{
     success: boolean;
     data: NotificationResponse;
-  }>(`/api/notifications/${notificationId}`, {
+  }>(`/api/v1/notifications/${notificationId}`, {
     method: 'PATCH',
   });
 
@@ -87,7 +87,7 @@ export async function deleteNotification(notificationId: string): Promise<void> 
   await fetchAPI<{
     success: boolean;
     data: { message: string };
-  }>(`/api/notifications/${notificationId}`, {
+  }>(`/api/v1/notifications/${notificationId}`, {
     method: 'DELETE',
   });
 }
@@ -99,7 +99,7 @@ export async function dismissAllNotifications(): Promise<void> {
   await fetchAPI<{
     success: boolean;
     data: { message: string };
-  }>('/api/notifications/dismiss-all', {
+  }>('/api/v1/notifications/dismiss-all', {
     method: 'PATCH',
   });
 }
@@ -111,7 +111,7 @@ export async function deleteAllNotifications(): Promise<void> {
   await fetchAPI<{
     success: boolean;
     data: { message: string };
-  }>('/api/notifications', {
+  }>('/api/v1/notifications', {
     method: 'DELETE',
   });
 }

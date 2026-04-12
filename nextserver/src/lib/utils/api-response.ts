@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ERROR_CODES, HTTP_STATUS } from "@/lib/constants/error-codes";
 import { serialize } from "@/lib/utils/serialize";
+import { getRequestId } from "@/lib/request-context";
 
 // Re-export for convenience
 export { ERROR_CODES, HTTP_STATUS };
@@ -10,7 +11,13 @@ export { ERROR_CODES, HTTP_STATUS };
  * Automatically serializes Prisma Decimal → number and Date → ISO string
  * for compatibility with the frontend's expected JSON shape.
  */
-export function successResponse<T>(data: T, message?: string, status: number = HTTP_STATUS.OK) {
+/**
+ * Success response helper.
+ * Accepts any data shape — Prisma Decimals, Dates, nested objects are all
+ * automatically converted to JSON-safe types by serialize().
+ * No `as any` needed at call sites.
+ */
+export function successResponse(data: unknown, message?: string, status: number = HTTP_STATUS.OK) {
   return NextResponse.json(
     {
       success: true,
@@ -36,6 +43,7 @@ export function errorResponse(
       error: {
         code,
         message,
+        request_id: getRequestId(),
         ...(details && { details }),
       },
     },

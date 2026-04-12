@@ -7,7 +7,7 @@ export async function updateProfile(
   profileId: string,
   data: { first_name?: string; last_name?: string; phone?: string | null }
 ) {
-  return fetchAPI(`/api/profiles/${profileId}`, {
+  return fetchAPI(`/api/v1/profiles/${profileId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -18,7 +18,7 @@ export async function updateProfile(
  */
 export async function uploadAvatar(profileId: string, formData: FormData) {
   return uploadAPI<{ message: string; avatar_url: string }>(
-    `/api/profiles/${profileId}/avatar/upload`,
+    `/api/v1/profiles/${profileId}/avatar/upload`,
     formData
   );
 }
@@ -27,5 +27,5 @@ export async function uploadAvatar(profileId: string, formData: FormData) {
  * Delete avatar image
  */
 export async function deleteAvatar(profileId: string) {
-  return fetchAPI(`/api/profiles/${profileId}/avatar`, { method: 'DELETE' });
+  return fetchAPI(`/api/v1/profiles/${profileId}/avatar`, { method: 'DELETE' });
 }

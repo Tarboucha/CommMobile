@@ -39,7 +39,7 @@ export async function getCommunityOfferings(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<Offering>;
-  }>(`/api/communities/${communityId}/offerings?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}/offerings?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -48,7 +48,7 @@ export async function getOffering(offeringId: string): Promise<Offering> {
   const response = await fetchAPI<{
     success: boolean;
     data: { offering: Offering };
-  }>(`/api/offerings/${offeringId}`, { method: 'GET' });
+  }>(`/api/v1/offerings/${offeringId}`, { method: 'GET' });
 
   return response.data.offering;
 }
@@ -60,7 +60,7 @@ export async function createOffering(
   const response = await fetchAPI<{
     success: boolean;
     data: { offering: Offering };
-  }>(`/api/communities/${communityId}/offerings`, {
+  }>(`/api/v1/communities/${communityId}/offerings`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -75,7 +75,7 @@ export async function updateOffering(
   const response = await fetchAPI<{
     success: boolean;
     data: { offering: Offering };
-  }>(`/api/offerings/${offeringId}`, {
+  }>(`/api/v1/offerings/${offeringId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -85,7 +85,7 @@ export async function updateOffering(
 
 export async function deleteOffering(offeringId: string): Promise<void> {
   await fetchAPI<{ success: boolean }>(
-    `/api/offerings/${offeringId}`,
+    `/api/v1/offerings/${offeringId}`,
     { method: 'DELETE' }
   );
 }
@@ -100,7 +100,7 @@ export async function getOfferingSchedules(
   const response = await fetchAPI<{
     success: boolean;
     data: { schedules: AvailabilitySchedule[] };
-  }>(`/api/offerings/${offeringId}/schedules`, { method: 'GET' });
+  }>(`/api/v1/offerings/${offeringId}/schedules`, { method: 'GET' });
 
   return response.data.schedules;
 }
@@ -112,7 +112,7 @@ export async function createOfferingSchedule(
   const response = await fetchAPI<{
     success: boolean;
     data: { schedule: AvailabilitySchedule };
-  }>(`/api/offerings/${offeringId}/schedules`, {
+  }>(`/api/v1/offerings/${offeringId}/schedules`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -128,7 +128,7 @@ export async function updateOfferingSchedule(
   const response = await fetchAPI<{
     success: boolean;
     data: { schedule: AvailabilitySchedule };
-  }>(`/api/offerings/${offeringId}/schedules/${scheduleId}`, {
+  }>(`/api/v1/offerings/${offeringId}/schedules/${scheduleId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   });
@@ -141,7 +141,7 @@ export async function deleteOfferingSchedule(
   scheduleId: string
 ): Promise<void> {
   await fetchAPI<{ success: boolean }>(
-    `/api/offerings/${offeringId}/schedules/${scheduleId}`,
+    `/api/v1/offerings/${offeringId}/schedules/${scheduleId}`,
     { method: 'DELETE' }
   );
 }
@@ -158,7 +158,7 @@ export async function getTimeSlots(
   const response = await fetchAPI<{
     success: boolean;
     data: TimeSlotResponse;
-  }>(`/api/offerings/${offeringId}/schedules/${scheduleId}/time-slots?date=${date}`, {
+  }>(`/api/v1/offerings/${offeringId}/schedules/${scheduleId}/time-slots?date=${date}`, {
     method: 'GET',
   });
 

@@ -19,7 +19,7 @@ export async function registerPushToken(token: string): Promise<void> {
   const deviceType = Platform.OS === 'ios' ? 'ios' : 'android';
 
   await fetchAPI<{ success: boolean; data: PushTokenResponse }>(
-    '/api/push-tokens',
+    '/api/v1/push-tokens',
     {
       method: 'POST',
       body: JSON.stringify({
@@ -37,7 +37,7 @@ export async function registerPushToken(token: string): Promise<void> {
  */
 export async function deletePushToken(token: string): Promise<void> {
   await fetchAPI<{ success: boolean; data: PushTokenResponse }>(
-    '/api/push-tokens',
+    '/api/v1/push-tokens',
     {
       method: 'DELETE',
       body: JSON.stringify({ token }),

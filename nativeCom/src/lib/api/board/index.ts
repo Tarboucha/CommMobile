@@ -18,7 +18,7 @@ export async function getBoardFeed(
   const response = await fetchAPI<{
     success: boolean;
     data: BoardFeedResponse;
-  }>(`/api/communities/${communityId}/board?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}/board?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -38,7 +38,7 @@ export async function getCommunityPosts(
   const response = await fetchAPI<{
     success: boolean;
     data: PaginatedResponse<CommunityPost>;
-  }>(`/api/communities/${communityId}/posts?${params}`, { method: 'GET' });
+  }>(`/api/v1/communities/${communityId}/posts?${params}`, { method: 'GET' });
 
   return response.data;
 }
@@ -50,7 +50,7 @@ export async function createPost(
   const response = await fetchAPI<{
     success: boolean;
     data: { post: CommunityPost };
-  }>(`/api/communities/${communityId}/posts`, {
+  }>(`/api/v1/communities/${communityId}/posts`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -60,7 +60,7 @@ export async function createPost(
 
 export async function deletePost(postId: string): Promise<void> {
   await fetchAPI<{ success: boolean }>(
-    `/api/posts/${postId}`,
+    `/api/v1/posts/${postId}`,
     { method: 'DELETE' }
   );
 }
@@ -75,7 +75,7 @@ export async function pinItem(
   itemId: string
 ): Promise<void> {
   await fetchAPI<{ success: boolean }>(
-    `/api/communities/${communityId}/board/pin`,
+    `/api/v1/communities/${communityId}/board/pin`,
     {
       method: 'POST',
       body: JSON.stringify({ item_type: itemType, item_id: itemId }),
@@ -85,7 +85,7 @@ export async function pinItem(
 
 export async function unpinItem(communityId: string): Promise<void> {
   await fetchAPI<{ success: boolean }>(
-    `/api/communities/${communityId}/board/pin`,
+    `/api/v1/communities/${communityId}/board/pin`,
     { method: 'DELETE' }
   );
 }

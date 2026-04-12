@@ -113,7 +113,7 @@ export function hasValidCoordinates(address: AddressComponents): boolean {
   }
   
   // Check latitude/longitude format (direct address)
-  const directAddress = address as any;
+  const directAddress = address as Record<string, unknown>;
   if (
     typeof directAddress.latitude === "number" &&
     typeof directAddress.longitude === "number" &&
@@ -138,7 +138,7 @@ export function hasValidCoordinates(address: AddressComponents): boolean {
 export function extractCoordinates(address: AddressComponents): { latitude: number; longitude: number } | null {
   if (!address) return null;
   
-  const addressData = address as any;
+  const addressData = address as Record<string, unknown>;
   
   // List of possible coordinate field name combinations
   const coordinateFields = [

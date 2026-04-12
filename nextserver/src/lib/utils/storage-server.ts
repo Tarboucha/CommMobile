@@ -231,7 +231,7 @@ export async function validateImageFile(
     };
   }
 
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type as any)) {
+  if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(file.type)) {
     return {
       valid: false,
       error: `Invalid file type. Allowed: ${ALLOWED_IMAGE_TYPES.join(", ")}`,
