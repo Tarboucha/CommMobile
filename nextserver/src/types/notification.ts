@@ -1,16 +1,16 @@
-import { Database } from "@/types/supabase";
+import type { notifications, Prisma } from "@/generated/prisma/client";
 
 /**
- * Notification types extracted from Supabase schema
+ * Notification types extracted from the Prisma schema.
  */
 
 // ============================================================================
 // Database Types
 // ============================================================================
 
-export type Notification = Database["public"]["Tables"]["notifications"]["Row"];
-export type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
-export type NotificationUpdate = Database["public"]["Tables"]["notifications"]["Update"];
+export type Notification = notifications;
+export type NotificationInsert = Prisma.notificationsCreateInput;
+export type NotificationUpdate = Prisma.notificationsUpdateInput;
 
 // ============================================================================
 // Notification Type Values (for reference)

@@ -6,13 +6,12 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { pinItemSchema } from "@/lib/validations/post";
 
 /**
  * POST /api/communities/[communityId]/board/pin
  * Pin an item (offering or post) to the top of the board.
- * Replaces any existing pin for this community.
  */
 export const POST = withAuth(async (user, request: NextRequest, params) => {
   const communityId = params?.communityId;
@@ -20,16 +19,14 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check admin/owner role
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("id, member_role, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { member_role: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You must be an active member of this community");
@@ -39,7 +36,6 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.notCommunityAdmin();
   }
 
-  // Parse body
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -56,57 +52,38 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
 
   // Verify the item exists and belongs to this community
   if (item_type === "offering") {
-    const { data: offering } = await supabase
-      .from("offerings")
-      .select("id")
-      .eq("id", item_id)
-      .eq("community_id", communityId)
-      .is("deleted_at", null)
-      .eq("status", "active")
-      .single();
-
-    if (!offering) {
-      return ApiErrors.notFound("Offering");
-    }
+    const offering = await prisma.offerings.findFirst({
+      where: { id: item_id, community_id: communityId, deleted_at: null, status: "active" },
+    });
+    if (!offering) return ApiErrors.notFound("Offering");
   } else {
-    const { data: post } = await supabase
-      .from("community_posts")
-      .select("id")
-      .eq("id", item_id)
-      .eq("community_id", communityId)
-      .is("deleted_at", null)
-      .eq("status", "active")
-      .single();
-
-    if (!post) {
-      return ApiErrors.notFound("Post");
-    }
+    const post = await prisma.community_posts.findFirst({
+      where: { id: item_id, community_id: communityId, deleted_at: null, status: "active" },
+    });
+    if (!post) return ApiErrors.notFound("Post");
   }
 
-  // Delete existing pin (UNIQUE constraint enforces one per community)
-  await supabase
-    .from("community_pinned_items")
-    .delete()
-    .eq("community_id", communityId);
+  try {
+    // Delete existing pin
+    await prisma.community_pinned_items.deleteMany({
+      where: { community_id: communityId },
+    });
 
-  // Insert new pin
-  const insertData = {
-    community_id: communityId as string,
-    pinned_by_profile_id: user.id,
-    pinned_offering_id: item_type === "offering" ? item_id : null,
-    pinned_post_id: item_type === "post" ? item_id : null,
-  };
+    // Insert new pin
+    await prisma.community_pinned_items.create({
+      data: {
+        community_id: communityId,
+        pinned_by_profile_id: user.id,
+        pinned_offering_id: item_type === "offering" ? item_id : null,
+        pinned_post_id: item_type === "post" ? item_id : null,
+      },
+    });
 
-  const { error: insertError } = await supabase
-    .from("community_pinned_items")
-    .insert(insertData);
-
-  if (insertError) {
-    console.error("Failed to pin item:", insertError);
+    return successResponse({ pinned: true }, undefined, 201);
+  } catch (error) {
+    console.error("Failed to pin item:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ pinned: true }, undefined, 201);
 });
 
 /**
@@ -119,16 +96,14 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check admin/owner role
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("id, member_role, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { member_role: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You must be an active member of this community");
@@ -138,17 +113,16 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.notCommunityAdmin();
   }
 
-  const { error } = await supabase
-    .from("community_pinned_items")
-    .delete()
-    .eq("community_id", communityId);
+  try {
+    await prisma.community_pinned_items.deleteMany({
+      where: { community_id: communityId },
+    });
 
-  if (error) {
+    return successResponse({ unpinned: true });
+  } catch (error) {
     console.error("Failed to unpin item:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ unpinned: true });
 });
 
 export async function GET() {

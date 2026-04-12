@@ -6,7 +6,7 @@ import {
   handleUnsupportedMethod,
   ApiErrors,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 /**
  * POST /api/communities/[communityId]/invite-link
@@ -18,16 +18,14 @@ export const POST = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check user has admin/owner/moderator role
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { member_role: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You are not a member of this community");
@@ -37,29 +35,28 @@ export const POST = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.forbidden("You don't have permission to manage invite links");
   }
 
-  // Generate token and set expiry (7 days)
   const token = randomUUID();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  const { error } = await supabase
-    .from("communities")
-    .update({
-      invite_link_token: token,
-      invite_link_expires_at: expiresAt.toISOString(),
-    })
-    .eq("id", communityId);
+  try {
+    await prisma.communities.update({
+      where: { id: communityId },
+      data: {
+        invite_link_token: token,
+        invite_link_expires_at: expiresAt,
+      },
+    });
 
-  if (error) {
+    return successResponse(
+      { token, expires_at: expiresAt.toISOString() },
+      undefined,
+      201
+    );
+  } catch (error) {
     console.error("Error generating invite link:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(
-    { token, expires_at: expiresAt.toISOString() },
-    undefined,
-    201
-  );
 });
 
 /**
@@ -72,16 +69,14 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check user has admin/owner/moderator role
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { member_role: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You are not a member of this community");
@@ -91,20 +86,20 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.forbidden("You don't have permission to manage invite links");
   }
 
-  const { error } = await supabase
-    .from("communities")
-    .update({
-      invite_link_token: null,
-      invite_link_expires_at: null,
-    })
-    .eq("id", communityId);
+  try {
+    await prisma.communities.update({
+      where: { id: communityId },
+      data: {
+        invite_link_token: null,
+        invite_link_expires_at: null,
+      },
+    });
 
-  if (error) {
+    return successResponse({ message: "Invite link revoked" });
+  } catch (error) {
     console.error("Error revoking invite link:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "Invite link revoked" });
 });
 
 export async function GET() {

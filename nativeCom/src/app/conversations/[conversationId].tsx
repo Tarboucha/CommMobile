@@ -11,7 +11,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
-import { useDirectChat } from '@/hooks/use-direct-chat';
+import { useDirectChat } from '@/hooks/queries/use-direct-chat';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { MessageBubble } from '@/components/pages/community/message-bubble';
 

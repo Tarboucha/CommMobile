@@ -5,15 +5,19 @@ import type { Database } from '@/types/supabase';
 
 // --- Types ---
 
-type OfferingCategory = Database['public']['Enums']['offering_category'];
 type FulfillmentMethod = Database['public']['Enums']['fulfillment_method'];
 
+/**
+ * The cart is **products-only**. Loans, services, and events use direct
+ * booking flows that bypass the cart entirely. The category field is
+ * narrowed to the literal `'product'` to enforce this at the type level.
+ */
 export interface BookingCartItem {
   /** Unique key: `${offeringId}-${scheduleId}-${instanceDate}` */
   cartItemKey: string;
   offeringId: string;
   offeringTitle: string;
-  offeringCategory: OfferingCategory;
+  offeringCategory: 'product';
   priceAmount: number;
   currencyCode: string;
   quantity: number;
@@ -31,14 +35,35 @@ export interface BookingCartItem {
 interface CartState {
   items: BookingCartItem[];
   communityId: string | null;
+  providerId: string | null;
+  providerName: string | null;
 }
 
+/**
+ * Result of attempting to add an item:
+ * - 'added': item was added successfully
+ * - 'provider_conflict': cart already has items from a different provider in this community
+ *   (caller should prompt user to confirm replace)
+ */
+export type AddItemResult =
+  | { status: 'added' }
+  | { status: 'provider_conflict'; existingProviderName: string };
+
 interface CartActions {
-  addItem: (item: Omit<BookingCartItem, 'cartItemKey' | 'quantity'>) => void;
+  /**
+   * Try to add an item. If the cart has items from a different provider in the
+   * same community, returns a conflict result so the UI can prompt the user.
+   * Use `replaceWithItem` after the user confirms.
+   */
+  addItem: (item: Omit<BookingCartItem, 'cartItemKey' | 'quantity'>) => AddItemResult;
+  /**
+   * Clear the cart and add this single item. Used after a provider conflict
+   * is resolved by the user choosing to replace.
+   */
+  replaceWithItem: (item: Omit<BookingCartItem, 'cartItemKey' | 'quantity'>) => void;
   removeItem: (cartItemKey: string) => void;
   updateQuantity: (cartItemKey: string, quantity: number) => void;
   clearCart: () => void;
-  removeItems: (cartItemKeys: string[]) => void;
   getTotalAmount: () => number;
   getItemCount: () => number;
   getItem: (cartItemKey: string) => BookingCartItem | undefined;
@@ -46,16 +71,32 @@ interface CartActions {
 
 type CartStore = CartState & CartActions;
 
-// --- Store ---
+// --- Helpers ---
 
 const initialState: CartState = {
   items: [],
   communityId: null,
+  providerId: null,
+  providerName: null,
 };
 
-function makeCartItemKey(offeringId: string, scheduleId: string | null, instanceDate: string | null): string {
+function makeCartItemKey(
+  offeringId: string,
+  scheduleId: string | null,
+  instanceDate: string | null
+): string {
   return `${offeringId}-${scheduleId ?? 'none'}-${instanceDate ?? 'none'}`;
 }
+
+function ensureProduct(category: string): asserts category is 'product' {
+  if (category !== 'product') {
+    throw new Error(
+      `Cart only accepts products. Tried to add an item with category "${category}".`
+    );
+  }
+}
+
+// --- Store ---
 
 export const useCartStore = create<CartStore>()(
   persist(
@@ -63,42 +104,85 @@ export const useCartStore = create<CartStore>()(
       ...initialState,
 
       addItem: (itemData) => {
-        const state = get();
-        const cartItemKey = makeCartItemKey(itemData.offeringId, itemData.scheduleId, itemData.instanceDate);
+        ensureProduct(itemData.offeringCategory);
 
-        // If cart has items from a different community, clear first
+        const state = get();
+
+        // Different community → auto-clear and start fresh
         if (state.communityId && state.communityId !== itemData.communityId) {
-          set({ items: [], communityId: itemData.communityId });
+          const cartItemKey = makeCartItemKey(
+            itemData.offeringId,
+            itemData.scheduleId,
+            itemData.instanceDate
+          );
+          set({
+            items: [{ ...itemData, cartItemKey, quantity: 1 }],
+            communityId: itemData.communityId,
+            providerId: itemData.providerId,
+            providerName: itemData.providerName,
+          });
+          return { status: 'added' };
         }
 
-        const existing = get().items.find((i) => i.cartItemKey === cartItemKey);
+        // Same community, different provider → conflict (caller should prompt)
+        if (state.providerId && state.providerId !== itemData.providerId) {
+          return {
+            status: 'provider_conflict',
+            existingProviderName: state.providerName ?? 'another provider',
+          };
+        }
+
+        // Same provider (or empty cart) → add or increment
+        const cartItemKey = makeCartItemKey(
+          itemData.offeringId,
+          itemData.scheduleId,
+          itemData.instanceDate
+        );
+        const existing = state.items.find((i) => i.cartItemKey === cartItemKey);
 
         if (existing) {
           set({
-            items: get().items.map((i) =>
+            items: state.items.map((i) =>
               i.cartItemKey === cartItemKey ? { ...i, quantity: i.quantity + 1 } : i
             ),
             communityId: itemData.communityId,
+            providerId: itemData.providerId,
+            providerName: itemData.providerName,
           });
         } else {
-          const newItem: BookingCartItem = {
-            ...itemData,
-            cartItemKey,
-            quantity: 1,
-          };
           set({
-            items: [...get().items, newItem],
+            items: [...state.items, { ...itemData, cartItemKey, quantity: 1 }],
             communityId: itemData.communityId,
+            providerId: itemData.providerId,
+            providerName: itemData.providerName,
           });
         }
+
+        return { status: 'added' };
+      },
+
+      replaceWithItem: (itemData) => {
+        ensureProduct(itemData.offeringCategory);
+        const cartItemKey = makeCartItemKey(
+          itemData.offeringId,
+          itemData.scheduleId,
+          itemData.instanceDate
+        );
+        set({
+          items: [{ ...itemData, cartItemKey, quantity: 1 }],
+          communityId: itemData.communityId,
+          providerId: itemData.providerId,
+          providerName: itemData.providerName,
+        });
       },
 
       removeItem: (cartItemKey) => {
         const newItems = get().items.filter((i) => i.cartItemKey !== cartItemKey);
-        set({
-          items: newItems,
-          communityId: newItems.length === 0 ? null : get().communityId,
-        });
+        if (newItems.length === 0) {
+          set(initialState);
+        } else {
+          set({ items: newItems });
+        }
       },
 
       updateQuantity: (cartItemKey, quantity) => {
@@ -115,14 +199,6 @@ export const useCartStore = create<CartStore>()(
 
       clearCart: () => {
         set(initialState);
-      },
-
-      removeItems: (cartItemKeys) => {
-        const newItems = get().items.filter((i) => !cartItemKeys.includes(i.cartItemKey));
-        set({
-          items: newItems,
-          communityId: newItems.length === 0 ? null : get().communityId,
-        });
       },
 
       getTotalAmount: () => {
@@ -143,6 +219,8 @@ export const useCartStore = create<CartStore>()(
       partialize: (state) => ({
         items: state.items,
         communityId: state.communityId,
+        providerId: state.providerId,
+        providerName: state.providerName,
       }),
     }
   )

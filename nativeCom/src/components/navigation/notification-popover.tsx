@@ -40,7 +40,7 @@ export function NotificationPopover({
       setIsLoading(true);
       setError(null);
       const response = await getNotifications({ limit: 5 });
-      setNotifications(response.notifications);
+      setNotifications(response.data);
       onUnreadCountChange?.(response.unread_count);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load notifications');
@@ -79,8 +79,16 @@ export function NotificationPopover({
       onClose();
 
       // Navigate based on notification type
-      if (notification.related_order_id) {
-        router.push(`/account/shared/orders/${notification.related_order_id}`);
+      if (notification.related_booking_id) {
+        router.push({
+          pathname: '/booking/[bookingId]',
+          params: { bookingId: notification.related_booking_id },
+        });
+      } else if (notification.related_community_id) {
+        router.push({
+          pathname: '/community/[communityId]',
+          params: { communityId: notification.related_community_id },
+        });
       }
     },
     [onClose]
@@ -123,7 +131,7 @@ export function NotificationPopover({
             </View>
 
             {/* Mark All as Read Button */}
-            {notifications.some((n) => !n.is_dismissed) && (
+            {notifications.some((n) => !n.is_read) && (
               <View className="px-6 py-4">
                 <Pressable
                   className="flex-row items-center gap-2 py-3 px-4 rounded-lg bg-muted self-start min-h-[44px]"

@@ -8,8 +8,14 @@ import { paginationSchema } from "@/lib/validations/pagination";
 export const offeringCategoryValues = [
   "product",
   "service",
-  "share",
   "event",
+] as const;
+
+export const transactionTypeValues = [
+  "purchase",
+  "booking",
+  "loan",
+  "free",
 ] as const;
 
 export const priceTypeValues = [
@@ -35,6 +41,7 @@ export const createOfferingSchema = z
     title: z.string().min(1, "Title is required").max(200),
     description: z.string().max(2000).optional(),
     category: z.enum(offeringCategoryValues),
+    transaction_type: z.enum(transactionTypeValues).default("purchase"),
     price_type: z.enum(priceTypeValues).default("fixed"),
     price_amount: z.number().min(0).optional(),
     currency_code: z.string().max(3).default("EUR"),
@@ -43,6 +50,8 @@ export const createOfferingSchema = z
     is_delivery_available: z.boolean().default(false),
     delivery_fee_amount: z.number().min(0).optional(),
     delivery_radius_km: z.number().min(0).optional(),
+    requires_deposit: z.boolean().default(false),
+    deposit_amount: z.number().min(0).optional().nullable(),
   })
   .refine(
     (data) => {
@@ -58,6 +67,7 @@ export const updateOfferingSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional().nullable(),
   category: z.enum(offeringCategoryValues).optional(),
+  transaction_type: z.enum(transactionTypeValues).optional(),
   price_type: z.enum(priceTypeValues).optional(),
   price_amount: z.number().min(0).optional(),
   fulfillment_method: z.enum(fulfillmentMethodValues).optional(),
@@ -65,11 +75,14 @@ export const updateOfferingSchema = z.object({
   is_delivery_available: z.boolean().optional(),
   delivery_fee_amount: z.number().min(0).optional(),
   delivery_radius_km: z.number().min(0).optional(),
-  status: z.enum(["active", "inactive"]).optional(),
+  requires_deposit: z.boolean().optional(),
+  deposit_amount: z.number().min(0).optional().nullable(),
+  status: z.enum(["active", "paused", "deleted"]).optional(),
 });
 
 export const offeringFilterSchema = paginationSchema.extend({
   category: z.enum(offeringCategoryValues).optional(),
+  transaction_type: z.enum(transactionTypeValues).optional(),
 });
 
 // ============================================================================
@@ -89,6 +102,9 @@ export const createScheduleSchema = z
     slots_available: z.number().int().min(1, "At least 1 slot required"),
     slot_label: z.string().max(100).optional(),
     is_active: z.boolean().default(true),
+    loan_duration_days: z.number().int().min(1).optional(),
+    loan_max_duration_days: z.number().int().min(1).optional().nullable(),
+    slot_duration_minutes: z.number().int().min(15).max(480).optional().nullable(),
   })
   .refine(
     (data) => data.end_time > data.start_time,
@@ -100,6 +116,18 @@ export const createScheduleSchema = z
       return true;
     },
     { message: "End date must be on or after start date", path: ["dtend"] }
+  )
+  .refine(
+    (data) => {
+      if (data.loan_max_duration_days && data.loan_duration_days) {
+        return data.loan_max_duration_days >= data.loan_duration_days;
+      }
+      return true;
+    },
+    {
+      message: "loan_max_duration_days must be >= loan_duration_days",
+      path: ["loan_max_duration_days"],
+    }
   );
 
 export const updateScheduleSchema = z
@@ -112,6 +140,9 @@ export const updateScheduleSchema = z
     slots_available: z.number().int().min(1).optional(),
     slot_label: z.string().max(100).optional().nullable(),
     is_active: z.boolean().optional(),
+    loan_duration_days: z.number().int().min(1).optional(),
+    loan_max_duration_days: z.number().int().min(1).optional().nullable(),
+    slot_duration_minutes: z.number().int().min(15).max(480).optional().nullable(),
   });
 
 // ============================================================================

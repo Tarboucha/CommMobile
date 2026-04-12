@@ -6,13 +6,13 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import {
   createCommunitySchema,
   communityFilterSchema,
 } from "@/lib/validations/community";
 import {
-  applyCursorPagination,
+  decodeCursor,
   buildPaginatedResponse,
 } from "@/lib/utils/pagination";
 import type { CommunityResponse } from "@/types/community";
@@ -22,7 +22,6 @@ import type { CommunityResponse } from "@/types/community";
  * List the authenticated user's communities
  */
 export const GET = withAuth(async (user, request: NextRequest) => {
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -34,41 +33,54 @@ export const GET = withAuth(async (user, request: NextRequest) => {
 
   const { limit, after } = validation.data;
 
-  // Get community IDs where user is an active member
-  const { data: memberships, error: memberError } = await supabase
-    .from("community_members")
-    .select("community_id")
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active");
+  try {
+    // Get community IDs where user is an active member
+    const memberships = await prisma.community_members.findMany({
+      where: {
+        profile_id: user.id,
+        membership_status: "active",
+      },
+      select: { community_id: true },
+    });
 
-  if (memberError) {
-    console.error("Error fetching memberships:", memberError);
-    return ApiErrors.serverError();
-  }
+    const communityIds = memberships.map((m) => m.community_id);
 
-  const communityIds = memberships?.map((m) => m.community_id) || [];
+    if (communityIds.length === 0) {
+      return successResponse(buildPaginatedResponse([], limit));
+    }
 
-  if (communityIds.length === 0) {
-    return successResponse(buildPaginatedResponse([], limit));
-  }
+    const where: any = {
+      id: { in: communityIds },
+      is_active: true,
+      deleted_at: null,
+    };
 
-  let query = supabase
-    .from("communities")
-    .select("*")
-    .in("id", communityIds)
-    .eq("is_active", true)
-    .is("deleted_at", null);
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  query = applyCursorPagination(query, { limit, after });
+    const communities = await prisma.communities.findMany({
+      where,
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  const { data: communities, error } = await query;
-
-  if (error) {
+    return successResponse(
+      buildPaginatedResponse(
+        communities.map((c) => ({ ...c, created_at: c.created_at?.toISOString() ?? null }) as any),
+        limit
+      )
+    );
+  } catch (error) {
     console.error("Error fetching communities:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(communities || [], limit));
 });
 
 /**
@@ -88,39 +100,25 @@ export const POST = withAuth(async (user, request: NextRequest) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const supabase = await createClient();
-
-  // Insert without .select() to avoid RETURNING clause RLS timing issue.
-  // The AFTER INSERT trigger adds the creator as owner, but RETURNING
-  // evaluates before the trigger runs — so non-open communities fail the
-  // SELECT policy. We split into insert + separate select instead.
-  const { error: insertError } = await supabase
-    .from("communities")
-    .insert({
-      ...validation.data,
-      created_by_profile_id: user.id,
+  try {
+    // With Prisma there's no RLS, so we can create and return directly.
+    // The DB trigger still fires to add the creator as owner.
+    const community = await prisma.communities.create({
+      data: {
+        ...validation.data,
+        created_by_profile_id: user.id,
+      },
     });
 
-  if (insertError) {
-    console.error("Error creating community:", insertError);
+    return successResponse<CommunityResponse>(
+      { community: community as any },
+      undefined,
+      201
+    );
+  } catch (error) {
+    console.error("Error creating community:", error);
     return ApiErrors.serverError();
   }
-
-  // Now the trigger has run and the creator is a member — SELECT policy passes.
-  const { data: community, error: selectError } = await supabase
-    .from("communities")
-    .select("*")
-    .eq("created_by_profile_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (selectError || !community) {
-    console.error("Error fetching created community:", selectError);
-    return ApiErrors.serverError();
-  }
-
-  return successResponse<CommunityResponse>({ community }, undefined, 201);
 });
 
 export async function PUT() {

@@ -5,6 +5,8 @@ import type {
   BookingListItem,
   BookingDetail,
   BookingStatusUpdatePayload,
+  OfferActionPayload,
+  PriceOffer,
 } from '@/types/booking';
 
 /**
@@ -71,4 +73,54 @@ export async function updateBookingStatus(
   });
 
   return response.data.booking;
+}
+
+/**
+ * Mark a loan booking item as returned. Only the provider can trigger this.
+ * Server calls the `return_loan_item` RPC which releases the reserved slots
+ * and sets booking status to `returned` once all loan items are back.
+ */
+export async function returnLoanItem(
+  bookingId: string,
+  itemId: string
+): Promise<BookingDetail> {
+  const response = await fetchAPI<{
+    success: boolean;
+    data: { booking: BookingDetail };
+  }>(`/api/bookings/${bookingId}/items/${itemId}/return`, {
+    method: 'POST',
+    retry: false,
+  });
+
+  return response.data.booking;
+}
+
+/**
+ * Submit a price offer action (counter, accept, decline) on a booking.
+ */
+export async function submitOffer(
+  bookingId: string,
+  payload: OfferActionPayload
+): Promise<{ offer: PriceOffer; message_id: string; agreed_amount?: number }> {
+  const response = await fetchAPI<{
+    success: boolean;
+    data: { offer: PriceOffer; message_id: string; agreed_amount?: number };
+  }>(`/api/bookings/${bookingId}/offers`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data;
+}
+
+/**
+ * List all offers for a booking.
+ */
+export async function getOffers(bookingId: string): Promise<PriceOffer[]> {
+  const response = await fetchAPI<{
+    success: boolean;
+    data: { offers: PriceOffer[] };
+  }>(`/api/bookings/${bookingId}/offers`, { method: 'GET' });
+
+  return response.data.offers;
 }

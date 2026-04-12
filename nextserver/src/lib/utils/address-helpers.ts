@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 export const MAX_ADDRESSES_PER_USER = 5;
 
@@ -15,20 +15,11 @@ export interface AddressCountInfo {
  * @returns Promise<number> - The count of active addresses
  */
 export async function getActiveAddressCount(userId: string): Promise<number> {
-  const supabase = await createClient();
-  
-  const { count, error } = await supabase
-    .from("addresses")
-    .select("*", { count: "exact", head: true })
-    .eq("profile_id", userId)
-    .is("deleted_at", null);
+  const count = await prisma.addresses.count({
+    where: { profile_id: userId, deleted_at: null },
+  });
 
-  if (error) {
-    console.error("Failed to count addresses:", error);
-    throw new Error("Failed to count addresses");
-  }
-
-  return count || 0;
+  return count;
 }
 
 /**

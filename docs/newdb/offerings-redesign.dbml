@@ -1,0 +1,477 @@
+// ============================================================================
+// Offerings System Redesign — dbdiagram.io schema
+// Paste this at https://dbdiagram.io/d
+// ============================================================================
+
+// ─── ENUMS ──────────────────────────────────────────────────────────────────
+
+Enum offering_category {
+  product
+  service
+  event
+}
+
+Enum transaction_type {
+  purchase
+  booking
+  loan
+  free
+}
+
+Enum price_type {
+  fixed
+  negotiable
+  free
+  donation
+}
+
+Enum fulfillment_method {
+  pickup
+  delivery
+  online
+  at_location
+}
+
+Enum booking_status {
+  pending
+  confirmed
+  in_progress
+  ready
+  completed
+  loaned_out    // loan: item is with borrower
+  returned      // loan: item returned by borrower
+  overdue       // loan: past due date, not returned
+  cancelled
+  refunded
+}
+
+Enum payment_method {
+  cash
+  external
+  in_app
+}
+
+Enum payment_status {
+  pending
+  paid
+  refunded
+  cancelled
+}
+
+// ─── REFERENCED TABLES (simplified, not part of redesign) ──────────────────
+
+Table profiles {
+  id uuid [pk]
+  first_name text
+  last_name text
+  avatar_url text
+  phone text
+  email text
+}
+
+Table communities {
+  id uuid [pk]
+  community_name text
+  created_by_profile_id uuid [ref: > profiles.id]
+}
+
+Table addresses {
+  id uuid [pk]
+  profile_id uuid [ref: > profiles.id]
+  street_name text
+  city text
+  postal_code text
+}
+
+// ─── OFFERINGS (base table — unified, no subtables) ────────────────────────
+
+Table offerings {
+  id uuid [pk]
+  provider_id uuid [ref: > profiles.id, not null]
+  community_id uuid [ref: > communities.id, not null]
+
+  // What it is (display label for board grouping)
+  category offering_category [not null]
+
+  // How you get it (controls booking behavior)
+  transaction_type transaction_type [not null, default: 'purchase']
+
+  // Core fields (shared by all types)
+  title text [not null, note: 'min 3 chars']
+  description text
+
+  // Pricing
+  price_type price_type [not null, default: 'fixed']
+  price_amount decimal(10,2) [note: 'required if fixed/negotiable, optional for loan (rental fee)']
+  currency_code varchar(3) [not null, default: 'EUR']
+
+  // Fulfillment (relevant for purchase + loan)
+  fulfillment_method fulfillment_method [default: 'pickup']
+  is_delivery_available boolean [default: false]
+  delivery_fee_amount decimal(10,2) [default: 0]
+  delivery_radius_km int
+  pickup_address_id uuid [ref: > addresses.id]
+
+  // Loan-specific (only when transaction_type = 'loan')
+  requires_deposit boolean [default: false]
+  deposit_amount decimal(10,2) [note: 'refundable deposit for loans']
+
+  // Event-specific (only when category = 'event')
+  venue_name text
+  venue_address_id uuid [ref: > addresses.id]
+
+  // Service-specific (only when category = 'service')
+  is_online boolean [default: false]
+  service_location_address_id uuid [ref: > addresses.id]
+
+  // Status & versioning
+  is_featured boolean [default: false]
+  version int [not null, default: 1, note: 'optimistic locking']
+  status varchar [not null, default: 'active', note: 'active | paused | deleted']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+
+  indexes {
+    (community_id, status)
+    (provider_id, status)
+    category
+    transaction_type
+  }
+
+  Note: '''
+  Single unified table. Category = display grouping (board rows).
+  Transaction type = booking behavior (purchase/booking/loan/free).
+  Type-specific fields are nullable — only populated when relevant.
+  '''
+}
+
+Table offering_images {
+  id uuid [pk]
+  offering_id uuid [ref: > offerings.id, not null]
+  image_url text [not null]
+  display_order int [default: 0]
+  is_primary boolean [default: false]
+  created_at timestamptz [default: `now()`]
+
+  indexes {
+    offering_id
+  }
+}
+
+// ─── AVAILABILITY SCHEDULES ────────────────────────────────────────────────
+
+Table availability_schedules {
+  id uuid [pk]
+  offering_id uuid [ref: > offerings.id, not null]
+
+  // Recurrence rule (RRULE standard)
+  dtstart date [not null]
+  dtend date
+  rrule text [not null]
+
+  // Time window
+  start_time time [not null]
+  end_time time [not null]
+
+  // Capacity
+  slots_available int [not null, note: 'total capacity per instance date']
+  slot_unit text
+  slot_label text
+
+  // Loan terms (only when offering.transaction_type = 'loan')
+  loan_duration_days int [default: 1, note: 'default loan period']
+  loan_max_duration_days int [note: 'max allowed loan period']
+
+  is_active boolean [default: true]
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (offering_id, is_active)
+  }
+
+  Note: '''
+  Defines when an offering is available and with what capacity.
+  For loans: also defines loan duration terms per schedule.
+  Required for booking/loan types, optional for purchase/free.
+  '''
+}
+
+Table schedule_exceptions {
+  id uuid [pk]
+  schedule_id uuid [ref: > availability_schedules.id, not null]
+  exception_date date [not null]
+
+  // Cancellation
+  is_cancelled boolean [default: false]
+  cancellation_reason text
+
+  // Overrides (null = use schedule defaults)
+  override_start_time time
+  override_end_time time
+  override_slots int
+
+  // Loan overrides (only for loan offerings)
+  override_loan_duration_days int
+  override_loan_max_duration_days int
+
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (schedule_id, exception_date) [unique]
+  }
+
+  Note: '''
+  Date-specific overrides for a schedule.
+  Can cancel a date, change capacity, or change loan terms.
+  For loans: exceptions block new loans from starting/spanning that date.
+  '''
+}
+
+Table schedule_instances {
+  schedule_id uuid [ref: > availability_schedules.id, not null]
+  instance_date date [not null]
+  slots_booked int [default: 0, note: 'incremented on booking, decremented on loan return']
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (schedule_id, instance_date) [pk]
+    instance_date
+  }
+
+  Note: '''
+  Created on-demand when first booking hits a date.
+  Purchase/booking: slots_booked only increases.
+  Loan: slots_booked decreases on return (critical difference).
+  '''
+}
+
+// ─── BOOKINGS ──────────────────────────────────────────────────────────────
+
+Table bookings {
+  id uuid [pk]
+  customer_id uuid [ref: > profiles.id, not null]
+  provider_id uuid [note: 'denormalized from booking_items for quick queries']
+  community_id uuid [ref: > communities.id, not null]
+
+  booking_number varchar [unique, not null, note: 'BK-YYYYMMDD-XXXX']
+  idempotency_key varchar [unique]
+  booking_status booking_status [not null, default: 'pending']
+
+  // Delivery
+  delivery_address_id uuid [ref: > addresses.id]
+  special_instructions text
+
+  // Pricing
+  currency_code varchar(3) [default: 'EUR']
+  subtotal_amount decimal(10,2) [not null]
+  service_fee_amount decimal(10,2) [default: 0]
+  total_amount decimal(10,2) [not null]
+
+  // Deposit (for loan bookings)
+  deposit_total decimal(10,2) [default: 0, note: 'sum of item deposits']
+  deposit_status varchar [default: 'none', note: 'none | held | released | forfeited']
+
+  // Payment
+  payment_method payment_method [not null, default: 'cash']
+  payment_status payment_status [not null, default: 'pending']
+
+  // Timeline
+  confirmed_at timestamptz
+  ready_at timestamptz
+  completed_at timestamptz
+  cancelled_at timestamptz
+  cancelled_by_id uuid [ref: > profiles.id]
+  cancellation_reason text
+
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+
+  indexes {
+    (customer_id, booking_status)
+    (community_id, booking_status)
+    booking_status
+  }
+}
+
+Table booking_items {
+  id uuid [pk]
+  booking_id uuid [ref: > bookings.id, not null]
+  offering_id uuid [ref: > offerings.id, not null]
+  schedule_id uuid [ref: > availability_schedules.id]
+  instance_date date [note: 'null if no schedule (always-available)']
+
+  // Transaction details
+  fulfillment_method fulfillment_method
+  delivery_fee_amount decimal(10,2) [default: 0]
+  quantity int [not null, default: 1]
+  unit_price_amount decimal(10,2)
+  total_amount decimal(10,2)
+  currency_code varchar(3)
+  offering_version int [not null, note: 'optimistic lock check']
+
+  // Loan tracking (only when offering.transaction_type = 'loan')
+  is_loan boolean [default: false]
+  loan_start_date date [note: 'first day of loan period']
+  loan_due_date date [note: 'last day, must return by this date']
+  loan_returned_at timestamptz [note: 'set when provider confirms return']
+  deposit_amount decimal(10,2) [note: 'per-item deposit']
+
+  // Offering snapshot (immutable at booking time)
+  snapshot_title text
+  snapshot_description text
+  snapshot_image_url text
+  snapshot_category offering_category
+  snapshot_transaction_type transaction_type
+
+  special_instructions text
+  created_at timestamptz [default: `now()`]
+
+  indexes {
+    booking_id
+    offering_id
+    (schedule_id, instance_date)
+  }
+
+  Note: '''
+  schedule_id + instance_date: both null or both set.
+  For loans: loan_start_date to loan_due_date defines the loan period.
+  Multi-day loans create schedule_instances entries for EVERY day.
+  '''
+}
+
+// ─── BOOKING SNAPSHOTS ─────────────────────────────────────────────────────
+
+Table booking_schedule_snapshots {
+  id uuid [pk]
+  booking_item_id uuid [ref: - booking_items.id, unique, not null]
+  original_schedule_id uuid [ref: > availability_schedules.id]
+
+  // Schedule state at booking time
+  snapshot_dtstart date
+  snapshot_dtend date
+  snapshot_rrule text
+  snapshot_start_time time
+  snapshot_end_time time
+  snapshot_slots_available int
+  snapshot_slot_unit text
+  snapshot_slot_label text
+
+  // Loan terms at booking time
+  snapshot_loan_duration_days int
+  snapshot_loan_max_duration_days int
+
+  // Exception data
+  had_exception boolean [default: false]
+  exception_override_slots int
+  exception_override_loan_duration_days int
+
+  slots_booked_at_booking int [note: 'slots booked BEFORE this booking']
+  created_at timestamptz [default: `now()`]
+}
+
+Table booking_provider_snapshots {
+  id uuid [pk]
+  booking_item_id uuid [ref: - booking_items.id, unique, not null]
+  original_provider_id uuid [ref: > profiles.id]
+  snapshot_display_name text
+  snapshot_avatar_url text
+  snapshot_email text
+  snapshot_phone text
+  created_at timestamptz [default: `now()`]
+}
+
+Table booking_customer_snapshots {
+  id uuid [pk]
+  booking_id uuid [ref: - bookings.id, unique, not null]
+  original_customer_id uuid [ref: > profiles.id]
+  snapshot_display_name text
+  snapshot_first_name text
+  snapshot_last_name text
+  snapshot_email text
+  snapshot_phone text
+  snapshot_avatar_url text
+  created_at timestamptz [default: `now()`]
+}
+
+Table booking_delivery_snapshots {
+  id uuid [pk]
+  booking_id uuid [ref: - bookings.id, unique, not null]
+  snapshot_address_id uuid [ref: > snapshot_addresses.id]
+  created_at timestamptz [default: `now()`]
+}
+
+Table booking_community_snapshots {
+  id uuid [pk]
+  booking_id uuid [ref: - bookings.id, unique, not null]
+  original_community_id uuid [ref: > communities.id]
+  snapshot_community_name text
+  snapshot_community_description text
+  snapshot_community_image_url text
+  created_at timestamptz [default: `now()`]
+}
+
+Table snapshot_addresses {
+  id uuid [pk]
+  original_address_id uuid [ref: > addresses.id]
+  street_name text
+  street_number text
+  apartment_unit text
+  city text
+  postal_code text
+  country text
+  latitude decimal
+  longitude decimal
+  instructions text
+  created_at timestamptz [default: `now()`]
+}
+
+// ─── BOOKING HISTORY ───────────────────────────────────────────────────────
+
+Table booking_status_history {
+  id uuid [pk]
+  booking_id uuid [ref: > bookings.id, not null]
+  from_status booking_status
+  to_status booking_status [not null]
+  changed_by_id uuid [ref: > profiles.id]
+  notes text
+  created_at timestamptz [default: `now()`]
+
+  indexes {
+    (booking_id, created_at)
+  }
+}
+
+// ─── COMMUNITY BOARD (posts separate from offerings) ───────────────────────
+
+Table community_posts {
+  id uuid [pk]
+  community_id uuid [ref: > communities.id, not null]
+  author_id uuid [ref: > profiles.id, not null]
+  content text [not null]
+  is_pinned boolean [default: false]
+  pinned_by_profile_id uuid [ref: > profiles.id]
+  pinned_at timestamptz
+  created_at timestamptz [default: `now()`]
+  updated_at timestamptz [default: `now()`]
+  deleted_at timestamptz
+
+  indexes {
+    (community_id, created_at)
+    (community_id, is_pinned)
+  }
+}
+
+Table community_pinned_items {
+  id uuid [pk]
+  community_id uuid [ref: > communities.id, not null]
+  pinned_offering_id uuid [ref: > offerings.id]
+  pinned_post_id uuid [ref: > community_posts.id]
+  pinned_by_profile_id uuid [ref: > profiles.id]
+  pinned_at timestamptz [default: `now()`]
+
+  Note: 'One pinned item per category row or post feed'
+}

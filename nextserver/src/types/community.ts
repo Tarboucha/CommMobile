@@ -1,24 +1,29 @@
-import { Database } from "@/types/supabase";
+import type {
+  communities,
+  community_invitations,
+  community_members,
+  Prisma,
+} from "@/generated/prisma/client";
 
 /**
- * Community types extracted from Supabase schema
+ * Community types extracted from the Prisma schema.
  */
 
 // ============================================================================
 // Database Types
 // ============================================================================
 
-export type Community = Database["public"]["Tables"]["communities"]["Row"];
-export type CommunityInsert = Database["public"]["Tables"]["communities"]["Insert"];
-export type CommunityUpdate = Database["public"]["Tables"]["communities"]["Update"];
+export type Community = communities;
+export type CommunityInsert = Prisma.communitiesCreateInput;
+export type CommunityUpdate = Prisma.communitiesUpdateInput;
 
-export type CommunityMember = Database["public"]["Tables"]["community_members"]["Row"];
-export type CommunityMemberInsert = Database["public"]["Tables"]["community_members"]["Insert"];
-export type CommunityMemberUpdate = Database["public"]["Tables"]["community_members"]["Update"];
+export type CommunityMember = community_members;
+export type CommunityMemberInsert = Prisma.community_membersCreateInput;
+export type CommunityMemberUpdate = Prisma.community_membersUpdateInput;
 
-export type CommunityInvitation = Database["public"]["Tables"]["community_invitations"]["Row"];
-export type CommunityInvitationInsert = Database["public"]["Tables"]["community_invitations"]["Insert"];
-export type CommunityInvitationUpdate = Database["public"]["Tables"]["community_invitations"]["Update"];
+export type CommunityInvitation = community_invitations;
+export type CommunityInvitationInsert = Prisma.community_invitationsCreateInput;
+export type CommunityInvitationUpdate = Prisma.community_invitationsUpdateInput;
 
 // ============================================================================
 // Enum Value Arrays (for Zod validation)

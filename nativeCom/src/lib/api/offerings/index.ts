@@ -6,6 +6,7 @@ import type {
   UpdateOfferingInput,
   CreateScheduleInput,
   UpdateScheduleInput,
+  TimeSlotResponse,
 } from '@/types/offering';
 import type { PaginatedResponse } from '@/types/community';
 
@@ -13,15 +14,27 @@ import type { PaginatedResponse } from '@/types/community';
 // Offerings
 // ============================================================================
 
+export interface OfferingsFilter {
+  category?: string;
+  transactionType?: string;
+}
+
 export async function getCommunityOfferings(
   communityId: string,
   limit = 20,
   cursor?: string,
-  category?: string
+  filter?: OfferingsFilter | string
 ): Promise<PaginatedResponse<Offering>> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set('after', cursor);
-  if (category) params.set('category', category);
+
+  // Backward compat: allow passing category as a string (legacy signature)
+  if (typeof filter === 'string') {
+    params.set('category', filter);
+  } else if (filter) {
+    if (filter.category) params.set('category', filter.category);
+    if (filter.transactionType) params.set('transaction_type', filter.transactionType);
+  }
 
   const response = await fetchAPI<{
     success: boolean;
@@ -131,4 +144,23 @@ export async function deleteOfferingSchedule(
     `/api/offerings/${offeringId}/schedules/${scheduleId}`,
     { method: 'DELETE' }
   );
+}
+
+/**
+ * Fetch computed time slots for a time-slotted schedule on a specific date.
+ * Returns empty slots array if the schedule is date-based (no slot_duration_minutes).
+ */
+export async function getTimeSlots(
+  offeringId: string,
+  scheduleId: string,
+  date: string
+): Promise<TimeSlotResponse> {
+  const response = await fetchAPI<{
+    success: boolean;
+    data: TimeSlotResponse;
+  }>(`/api/offerings/${offeringId}/schedules/${scheduleId}/time-slots?date=${date}`, {
+    method: 'GET',
+  });
+
+  return response.data;
 }

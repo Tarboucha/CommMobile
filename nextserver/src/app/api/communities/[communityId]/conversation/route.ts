@@ -1,53 +1,39 @@
 import { NextRequest } from "next/server";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 /**
  * GET /api/communities/:communityId/conversation
  * Get the community's group conversation.
- * Returns the conversation if the user is an active member.
  */
 export const GET = withAuth(
   async (user, _request: NextRequest, params) => {
     const { communityId } = params!;
-    const supabase = await createClient();
 
-    // Verify the user is an active member
-    const { data: membership, error: memberError } = await supabase
-      .from("community_members")
-      .select("profile_id")
-      .eq("community_id", communityId)
-      .eq("profile_id", user.id)
-      .eq("membership_status", "active")
-      .maybeSingle();
-
-    if (memberError) {
-      console.error("Error checking membership:", memberError);
-      return ApiErrors.serverError();
-    }
+    const membership = await prisma.community_members.findFirst({
+      where: {
+        community_id: communityId,
+        profile_id: user.id,
+        membership_status: "active",
+      },
+    });
 
     if (!membership) {
       return ApiErrors.notCommunityMember();
     }
 
-    // Get the community conversation
-    const { data: conversation, error } = await supabase
-      .from("conversations")
-      .select("*")
-      .eq("community_id", communityId)
-      .eq("conversation_type", "community")
-      .maybeSingle();
-
-    if (error) {
-      console.error("Error fetching conversation:", error);
-      return ApiErrors.serverError();
-    }
+    const conversation = await prisma.conversations.findFirst({
+      where: {
+        community_id: communityId,
+        conversation_type: "community",
+      },
+    });
 
     if (!conversation) {
       return ApiErrors.notFound("Conversation");
     }
 
-    return successResponse({ conversation });
+    return successResponse({ conversation: conversation as any });
   }
 );

@@ -6,33 +6,31 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { updatePostSchema } from "@/lib/validations/post";
 
 /**
  * GET /api/posts/[postId]
  * Get single post
  */
-export const GET = withAuth(async (user, _request: NextRequest, params) => {
+export const GET = withAuth(async (_user, _request: NextRequest, params) => {
   const postId = params?.postId;
   if (!postId) {
     return ApiErrors.badRequest("Post ID is required");
   }
 
-  const supabase = await createClient();
+  const post = await prisma.community_posts.findFirst({
+    where: { id: postId, deleted_at: null },
+    include: {
+      profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+    },
+  });
 
-  const { data: post, error } = await supabase
-    .from("community_posts")
-    .select("*, profiles!author_id(id, first_name, last_name, avatar_url)")
-    .eq("id", postId)
-    .is("deleted_at", null)
-    .single();
-
-  if (error || !post) {
+  if (!post) {
     return ApiErrors.notFound("Post");
   }
 
-  return successResponse({ post });
+  return successResponse({ post: post as any });
 });
 
 /**
@@ -45,15 +43,10 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Post ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Verify ownership
-  const { data: existing } = await supabase
-    .from("community_posts")
-    .select("id, author_id")
-    .eq("id", postId)
-    .is("deleted_at", null)
-    .single();
+  const existing = await prisma.community_posts.findFirst({
+    where: { id: postId, deleted_at: null },
+    select: { id: true, author_id: true },
+  });
 
   if (!existing) {
     return ApiErrors.notFound("Post");
@@ -63,7 +56,6 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("You can only edit your own posts");
   }
 
-  // Parse and validate
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -76,22 +68,20 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const { data: post, error: updateError } = await supabase
-    .from("community_posts")
-    .update({
-      ...validation.data,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", postId)
-    .select("*, profiles!author_id(id, first_name, last_name, avatar_url)")
-    .single();
+  try {
+    const post = await prisma.community_posts.update({
+      where: { id: postId },
+      data: { ...validation.data, updated_at: new Date() },
+      include: {
+        profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+      },
+    });
 
-  if (updateError || !post) {
-    console.error("Failed to update post:", updateError);
+    return successResponse({ post: post as any });
+  } catch (error) {
+    console.error("Failed to update post:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ post });
 });
 
 /**
@@ -104,15 +94,10 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Post ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Verify ownership
-  const { data: existing } = await supabase
-    .from("community_posts")
-    .select("id, author_id")
-    .eq("id", postId)
-    .is("deleted_at", null)
-    .single();
+  const existing = await prisma.community_posts.findFirst({
+    where: { id: postId, deleted_at: null },
+    select: { id: true, author_id: true },
+  });
 
   if (!existing) {
     return ApiErrors.notFound("Post");
@@ -122,20 +107,17 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.forbidden("You can only delete your own posts");
   }
 
-  const { error } = await supabase
-    .from("community_posts")
-    .update({
-      deleted_at: new Date().toISOString(),
-      status: "inactive",
-    })
-    .eq("id", postId);
+  try {
+    await prisma.community_posts.update({
+      where: { id: postId },
+      data: { deleted_at: new Date(), status: "inactive" },
+    });
 
-  if (error) {
+    return successResponse({ deleted: true });
+  } catch (error) {
     console.error("Failed to delete post:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ deleted: true });
 });
 
 export async function POST() {

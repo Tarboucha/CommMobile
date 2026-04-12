@@ -14,26 +14,12 @@ import { useCartStore } from '@/lib/stores/cart-store';
 import { getOffering, deleteOffering } from '@/lib/api/offerings';
 import { ScheduleEditor } from '@/components/pages/community/schedule-editor';
 import { ScheduleList } from '@/components/pages/community/schedule-list';
+import { LoanBookingSheet } from '@/components/booking/loan-booking-sheet';
+import { ScheduledBookingSheet } from '@/components/booking/scheduled-booking-sheet';
+import { MakeOfferSheet } from '@/components/booking/make-offer-sheet';
 import type { Offering } from '@/types/offering';
 
-const CATEGORY_COLORS: Record<string, string> = {
-  product: 'bg-blue-100 text-blue-800',
-  service: 'bg-green-100 text-green-800',
-  share: 'bg-purple-100 text-purple-800',
-  event: 'bg-amber-100 text-amber-800',
-};
-
-function formatPrice(offering: Offering): string {
-  if (offering.price_type === 'free') return 'Free';
-  if (offering.price_type === 'donation') return 'Donation';
-  if (offering.price_amount) {
-    const prefix = offering.price_type === 'negotiable' ? '~' : '';
-    return `${prefix}${offering.price_amount.toFixed(2)} ${offering.currency_code}`;
-  }
-  return 'Price not set';
-}
-
-function getProviderName(offering: Offering): string {
+function getProviderNameFromOffering(offering: Offering): string {
   if (offering.profiles) {
     const { first_name, last_name } = offering.profiles;
     if (first_name || last_name) {
@@ -43,8 +29,263 @@ function getProviderName(offering: Offering): string {
   return 'Unknown';
 }
 
+// ─── Booking action — routed by category + transaction type ─────────────────
+
+function BookingAction({ offering }: { offering: Offering }) {
+  const [showOfferSheet, setShowOfferSheet] = useState(false);
+  const addItem = useCartStore((s) => s.addItem);
+  const replaceWithItem = useCartStore((s) => s.replaceWithItem);
+  const updateQuantity = useCartStore((s) => s.updateQuantity);
+  const cartItem = useCartStore((s) =>
+    s.items.find(
+      (i) =>
+        i.offeringId === offering.id && i.scheduleId === null && i.instanceDate === null
+    )
+  );
+
+  // Route by category + transaction type
+  const isProductPurchase =
+    offering.category === 'product' && offering.transaction_type === 'purchase';
+  const isLoan = offering.category === 'product' && offering.transaction_type === 'loan';
+  const isService = offering.category === 'service';
+  const isEvent = offering.category === 'event';
+
+  // ─── Product purchase: cart flow ───────────────────────────────────────
+  if (isProductPurchase) {
+    const handleAddToCart = () => {
+      const itemData = {
+        offeringId: offering.id,
+        offeringTitle: offering.title,
+        offeringCategory: 'product' as const,
+        priceAmount: offering.price_amount ?? 0,
+        currencyCode: offering.currency_code,
+        providerId: offering.provider_id,
+        providerName: getProviderNameFromOffering(offering),
+        communityId: offering.community_id,
+        imageUrl: offering.image_url,
+        offeringVersion: offering.version,
+        scheduleId: null,
+        instanceDate: null,
+        fulfillmentMethod: offering.fulfillment_method,
+        deliveryFeeAmount: offering.delivery_fee_amount ?? null,
+      };
+
+      const result = addItem(itemData);
+
+      if (result.status === 'provider_conflict') {
+        Alert.alert(
+          'Replace your order?',
+          `Your order already has items from ${result.existingProviderName}. Replace them with this item?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Replace',
+              style: 'destructive',
+              onPress: () => replaceWithItem(itemData),
+            },
+          ]
+        );
+      }
+    };
+
+    if (cartItem) {
+      return (
+        <View className="flex-row items-center gap-3">
+          <View className="flex-row items-center gap-3 flex-1">
+            <Pressable
+              onPress={() => updateQuantity(cartItem.cartItemKey, cartItem.quantity - 1)}
+              className="w-10 h-10 rounded-full border border-border items-center justify-center active:bg-muted"
+            >
+              <Ionicons name="remove" size={18} color="#78716C" />
+            </Pressable>
+            <Text className="text-lg font-bold text-foreground">{cartItem.quantity}</Text>
+            <Pressable
+              onPress={() => updateQuantity(cartItem.cartItemKey, cartItem.quantity + 1)}
+              className="w-10 h-10 rounded-full border border-border items-center justify-center active:bg-muted"
+            >
+              <Ionicons name="add" size={18} color="#78716C" />
+            </Pressable>
+          </View>
+          <View className="flex-1 py-3 rounded-xl bg-primary/10 items-center">
+            <Text className="text-sm font-semibold text-primary">
+              In Order ({'\u00d7'}{cartItem.quantity})
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    const hasPriceToNegotiate = (offering.price_amount ?? 0) > 0;
+
+    return (
+      <>
+        <View className={hasPriceToNegotiate ? 'flex-row gap-2' : ''}>
+          <Pressable
+            onPress={handleAddToCart}
+            className={`flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80 ${hasPriceToNegotiate ? 'flex-1' : 'w-full'}`}
+          >
+            <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
+            <Text className="text-base font-semibold text-primary-foreground">
+              Add to Order
+            </Text>
+          </Pressable>
+
+          {hasPriceToNegotiate && (
+            <Pressable
+              onPress={() => setShowOfferSheet(true)}
+              className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-primary active:opacity-80"
+            >
+              <Ionicons name="pricetag-outline" size={18} color="#660000" />
+              <Text className="text-base font-semibold text-primary">Offer</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {hasPriceToNegotiate && (
+          <MakeOfferSheet
+            visible={showOfferSheet}
+            offering={offering}
+            onClose={() => setShowOfferSheet(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ─── Loan: direct booking via LoanBookingSheet ─────────────────────────
+  if (isLoan) {
+    return <LoanBookingButton offering={offering} />;
+  }
+
+  // ─── Service: scheduled booking sheet ──────────────────────────────────
+  if (isService) {
+    return <ScheduledBookingButton offering={offering} mode="service" />;
+  }
+
+  // ─── Event: scheduled booking sheet (RSVP variant) ─────────────────────
+  if (isEvent) {
+    return <ScheduledBookingButton offering={offering} mode="event" />;
+  }
+
+  return null;
+}
+
+// ─── Loan booking button ────────────────────────────────────────────────────
+
+function LoanBookingButton({ offering }: { offering: Offering }) {
+  const [showSheet, setShowSheet] = useState(false);
+  const [showOfferSheet, setShowOfferSheet] = useState(false);
+  const hasPriceToNegotiate = (offering.price_amount ?? 0) > 0;
+
+  return (
+    <>
+      <View className={hasPriceToNegotiate ? 'flex-row gap-2' : ''}>
+        <Pressable
+          onPress={() => setShowSheet(true)}
+          className={`flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80 ${hasPriceToNegotiate ? 'flex-1' : 'w-full'}`}
+        >
+          <Ionicons name="arrow-forward-circle-outline" size={20} color="#FFFFFF" />
+          <Text className="text-base font-semibold text-primary-foreground">Borrow</Text>
+        </Pressable>
+
+        {hasPriceToNegotiate && (
+          <Pressable
+            onPress={() => setShowOfferSheet(true)}
+            className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-primary active:opacity-80"
+          >
+            <Ionicons name="pricetag-outline" size={18} color="#660000" />
+            <Text className="text-base font-semibold text-primary">Offer</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <LoanBookingSheet
+        visible={showSheet}
+        offering={offering}
+        onClose={() => setShowSheet(false)}
+      />
+
+      {hasPriceToNegotiate && (
+        <MakeOfferSheet
+          visible={showOfferSheet}
+          offering={offering}
+          onClose={() => setShowOfferSheet(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Scheduled booking button (service / event) ────────────────────────────
+
+function ScheduledBookingButton({
+  offering,
+  mode,
+}: {
+  offering: Offering;
+  mode: 'service' | 'event';
+}) {
+  const [showSheet, setShowSheet] = useState(false);
+  const [showOfferSheet, setShowOfferSheet] = useState(false);
+
+  const isService = mode === 'service';
+  const label = isService ? 'Book' : 'RSVP';
+  const icon = isService ? 'time-outline' : 'calendar-outline';
+  const hasPriceToNegotiate = (offering.price_amount ?? 0) > 0;
+
+  return (
+    <>
+      <View className={hasPriceToNegotiate ? 'flex-row gap-2' : ''}>
+        <Pressable
+          onPress={() => setShowSheet(true)}
+          className={`flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80 ${hasPriceToNegotiate ? 'flex-1' : 'w-full'}`}
+        >
+          <Ionicons name={icon} size={20} color="#FFFFFF" />
+          <Text className="text-base font-semibold text-primary-foreground">{label}</Text>
+        </Pressable>
+
+        {hasPriceToNegotiate && (
+          <Pressable
+            onPress={() => setShowOfferSheet(true)}
+            className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-primary active:opacity-80"
+          >
+            <Ionicons name="pricetag-outline" size={18} color="#660000" />
+            <Text className="text-base font-semibold text-primary">Offer</Text>
+          </Pressable>
+        )}
+      </View>
+
+      <ScheduledBookingSheet
+        visible={showSheet}
+        offering={offering}
+        mode={mode}
+        onClose={() => setShowSheet(false)}
+      />
+
+      {hasPriceToNegotiate && (
+        <MakeOfferSheet
+          visible={showOfferSheet}
+          offering={offering}
+          onClose={() => setShowOfferSheet(false)}
+        />
+      )}
+    </>
+  );
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  product: 'bg-blue-100 text-blue-800',
+  service: 'bg-green-100 text-green-800',
+  event: 'bg-amber-100 text-amber-800',
+};
+
+function formatPrice(offering: Offering): string {
+  if (!offering.price_amount || offering.price_amount === 0) return 'Free';
+  return `${offering.price_amount.toFixed(2)} ${offering.currency_code}`;
+}
+
 export default function OfferingDetailScreen() {
-  const { communityId, offeringId } = useLocalSearchParams<{
+  const { offeringId } = useLocalSearchParams<{
     communityId: string;
     offeringId: string;
   }>();
@@ -56,13 +297,6 @@ export default function OfferingDetailScreen() {
   const [showScheduleEditor, setShowScheduleEditor] = useState(false);
 
   const isProvider = offering?.provider_id === userId;
-  const addItem = useCartStore((s) => s.addItem);
-  const updateQuantity = useCartStore((s) => s.updateQuantity);
-  const cartItem = useCartStore((s) =>
-    s.items.find(
-      (i) => i.offeringId === offeringId && i.scheduleId === null && i.instanceDate === null
-    )
-  );
 
   const loadOffering = useCallback(async () => {
     if (!offeringId) return;
@@ -159,66 +393,15 @@ export default function OfferingDetailScreen() {
           <View className="flex-row items-center gap-2 mt-1">
             <Ionicons name="person-outline" size={14} color="#78716C" />
             <Text className="text-xs text-muted-foreground">
-              by {getProviderName(offering)}
+              by {getProviderNameFromOffering(offering)}
             </Text>
           </View>
         </View>
 
-        {/* Add to Cart */}
-        {!isProvider && (
+        {/* Booking action — routed by transaction type */}
+        {!isProvider && offering && (
           <View className="mb-6">
-            {cartItem ? (
-              <View className="flex-row items-center gap-3">
-                <View className="flex-row items-center gap-3 flex-1">
-                  <Pressable
-                    onPress={() => updateQuantity(cartItem.cartItemKey, cartItem.quantity - 1)}
-                    className="w-10 h-10 rounded-full border border-border items-center justify-center active:bg-muted"
-                  >
-                    <Ionicons name="remove" size={18} color="#78716C" />
-                  </Pressable>
-                  <Text className="text-lg font-bold text-foreground">{cartItem.quantity}</Text>
-                  <Pressable
-                    onPress={() => updateQuantity(cartItem.cartItemKey, cartItem.quantity + 1)}
-                    className="w-10 h-10 rounded-full border border-border items-center justify-center active:bg-muted"
-                  >
-                    <Ionicons name="add" size={18} color="#78716C" />
-                  </Pressable>
-                </View>
-                <View className="flex-1 py-3 rounded-xl bg-primary/10 items-center">
-                  <Text className="text-sm font-semibold text-primary">
-                    In Cart ({'\u00d7'}{cartItem.quantity})
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  if (!offering || !communityId) return;
-                  addItem({
-                    offeringId: offering.id,
-                    offeringTitle: offering.title,
-                    offeringCategory: offering.category,
-                    priceAmount: offering.price_amount ?? 0,
-                    currencyCode: offering.currency_code,
-                    providerId: offering.provider_id,
-                    providerName: getProviderName(offering),
-                    communityId: offering.community_id,
-                    imageUrl: offering.image_url,
-                    offeringVersion: offering.version,
-                    scheduleId: null,
-                    instanceDate: null,
-                    fulfillmentMethod: offering.fulfillment_method,
-                    deliveryFeeAmount: offering.delivery_fee_amount ?? null,
-                  });
-                }}
-                className="w-full flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80"
-              >
-                <Ionicons name="cart-outline" size={20} color="#FFFFFF" />
-                <Text className="text-base font-semibold text-primary-foreground">
-                  Add to Cart
-                </Text>
-              </Pressable>
-            )}
+            <BookingAction offering={offering} />
           </View>
         )}
 

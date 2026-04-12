@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, handleUnsupportedMethod, ApiErrors } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { addressSchema, type AddressInput } from "@/lib/validations/address";
 import type { AddressListResponse, AddressResponse } from "@/types/address";
 import type { AddressInsert } from "@/types/address";
@@ -14,30 +14,24 @@ import { getAddressCountInfo, MAX_ADDRESSES_PER_USER } from "@/lib/utils/address
  * Returns only active (non-deleted) addresses with count information
  */
 export const GET = withAuth(async (user, _request: NextRequest) => {
-  const supabase = await createClient();
+  try {
+    const [addresses, countInfo] = await Promise.all([
+      prisma.addresses.findMany({
+        where: { profile_id: user.id, deleted_at: null },
+        orderBy: [{ is_default: "desc" }, { created_at: "desc" }],
+      }),
+      getAddressCountInfo(user.id),
+    ]);
 
-  // Get addresses and count info in parallel for better performance
-  const [addressesResult, countInfo] = await Promise.all([
-    supabase
-      .from("addresses")
-      .select("*")
-      .eq("profile_id", user.id)
-      .is("deleted_at", null)
-      .order("is_default", { ascending: false })
-      .order("created_at", { ascending: false }),
-    getAddressCountInfo(user.id)
-  ]);
-
-  if (addressesResult.error) {
-    console.error("Failed to fetch addresses:", addressesResult.error);
+    return successResponse<AddressListResponse>({
+      addresses: addresses as any,
+      total: addresses.length,
+      countInfo,
+    });
+  } catch (error) {
+    console.error("Failed to fetch addresses:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<AddressListResponse>({
-    addresses: addressesResult.data || [],
-    total: addressesResult.data?.length || 0,
-    countInfo,
-  });
 });
 
 /**
@@ -152,41 +146,29 @@ export const POST = withAuth(async (user, request) => {
     is_active: addressData.is_active ?? true,
   };
 
-  const supabase = await createClient();
-
-  // If setting this address as default, unset other default addresses
-  if (insertData.is_default) {
-    const { error: updateError } = await supabase
-      .from("addresses")
-      .update({ is_default: false })
-      .eq("profile_id", user.id)
-      .is("deleted_at", null);
-
-    if (updateError) {
-      console.error("Failed to unset other default addresses:", updateError);
-      return ApiErrors.serverError();
+  try {
+    // If setting this address as default, unset other default addresses
+    if (insertData.is_default) {
+      await prisma.addresses.updateMany({
+        where: { profile_id: user.id, deleted_at: null },
+        data: { is_default: false },
+      });
     }
-  }
 
-  // Insert new address
-  const { data: newAddress, error: insertError } = await supabase
-    .from("addresses")
-    .insert(insertData)
-    .select()
-    .single();
+    // Insert new address
+    const newAddress = await prisma.addresses.create({
+      data: insertData,
+    });
 
-  if (insertError) {
-    console.error("Failed to create address:", insertError);
+    return successResponse<AddressResponse>(
+      { address: newAddress as any },
+      undefined,
+      201
+    );
+  } catch (error) {
+    console.error("Failed to create address:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<AddressResponse>(
-    {
-      address: newAddress,
-    },
-    undefined,
-    201
-  );
 });
 
 // Catch unsupported methods

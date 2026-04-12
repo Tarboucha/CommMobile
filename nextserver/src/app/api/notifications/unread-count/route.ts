@@ -1,6 +1,6 @@
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors, handleUnsupportedMethod } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import type { NotificationUnreadCountResponse } from "@/types/notification";
 
 /**
@@ -8,22 +8,18 @@ import type { NotificationUnreadCountResponse } from "@/types/notification";
  * Get the count of unread notifications for the authenticated user
  */
 export const GET = withAuth(async (user) => {
-  const supabase = await createClient();
+  try {
+    const count = await prisma.notifications.count({
+      where: { profile_id: user.id, is_read: false },
+    });
 
-  const { count, error } = await supabase
-    .from("notifications")
-    .select("*", { count: "exact", head: true })
-    .eq("profile_id", user.id)
-    .eq("is_read", false);
-
-  if (error) {
+    return successResponse<NotificationUnreadCountResponse>({
+      unread_count: count,
+    });
+  } catch (error) {
     console.error("Error fetching unread notifications count:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<NotificationUnreadCountResponse>({
-    unread_count: count || 0,
-  });
 });
 
 export async function POST() {

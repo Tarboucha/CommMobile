@@ -1,26 +1,23 @@
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors, handleUnsupportedMethod } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 /**
  * PATCH /api/notifications/dismiss-all
  * Mark all unread notifications as read for the authenticated user
  */
 export const PATCH = withAuth(async (user) => {
-  const supabase = await createClient();
+  try {
+    await prisma.notifications.updateMany({
+      where: { profile_id: user.id, is_read: false },
+      data: { is_read: true, read_at: new Date() },
+    });
 
-  const { error } = await supabase
-    .from("notifications")
-    .update({ is_read: true, read_at: new Date().toISOString() })
-    .eq("profile_id", user.id)
-    .eq("is_read", false);
-
-  if (error) {
+    return successResponse({ message: "All notifications marked as read" });
+  } catch (error) {
     console.error("Failed to mark all notifications as read:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "All notifications marked as read" });
 });
 
 export async function GET() {

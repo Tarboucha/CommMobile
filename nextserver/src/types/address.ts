@@ -1,18 +1,18 @@
-import { Database } from "@/types/supabase";
+import type { addresses, address_type, Prisma } from "@/generated/prisma/client";
 import type { AddressCountInfo } from "@/lib/utils/address-helpers";
 
 /**
- * Address types extracted from Supabase schema
+ * Address types extracted from the Prisma schema.
  */
 
 // ============================================================================
 // Database Types
 // ============================================================================
 
-export type Address = Database["public"]["Tables"]["addresses"]["Row"];
-export type AddressInsert = Database["public"]["Tables"]["addresses"]["Insert"];
-export type AddressUpdate = Database["public"]["Tables"]["addresses"]["Update"];
-export type AddressType = Database["public"]["Enums"]["address_type"];
+export type Address = addresses;
+export type AddressInsert = Prisma.addressesUncheckedCreateInput;
+export type AddressUpdate = Prisma.addressesUncheckedUpdateInput;
+export type AddressType = address_type;
 
 // Visibility: 'private' (default) | 'offering_pickup'
 export type AddressVisibility = "private" | "offering_pickup";

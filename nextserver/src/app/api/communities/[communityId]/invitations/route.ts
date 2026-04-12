@@ -7,18 +7,15 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { createInvitationSchema } from "@/lib/validations/community";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 import { paginationSchema } from "@/lib/validations/pagination";
 import type { CommunityInvitationResponse } from "@/types/community";
 
 /**
  * GET /api/communities/[communityId]/invitations
- * List invitations — admin/owner sees all, invitee sees own (via RLS)
+ * List invitations
  */
 export const GET = withAuth(async (user, request: NextRequest, params) => {
   const communityId = params?.communityId;
@@ -26,7 +23,6 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -38,21 +34,35 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
 
   const { limit, after } = validation.data;
 
-  let query = supabase
-    .from("community_invitations")
-    .select("*")
-    .eq("community_id", communityId);
+  try {
+    const where: any = { community_id: communityId };
 
-  query = applyCursorPagination(query, { limit, after });
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  const { data: invitations, error } = await query;
+    const invitations = await prisma.community_invitations.findMany({
+      where,
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  if (error) {
+    const shaped = invitations.map((i) => ({
+      ...i,
+      created_at: i.created_at?.toISOString() ?? null,
+    }));
+
+    return successResponse(buildPaginatedResponse(shaped as any, limit));
+  } catch (error) {
     console.error("Error fetching invitations:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(invitations || [], limit));
 });
 
 /**
@@ -65,16 +75,14 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check user has invite permission
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("member_role, can_invite_members")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { member_role: true, can_invite_members: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You are not a member of this community");
@@ -102,78 +110,75 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
 
   const input = validation.data;
 
-  // Calculate expires_at
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + input.expires_in_days);
 
-  const { data: invitation, error } = await supabase
-    .from("community_invitations")
-    .insert({
-      community_id: communityId,
-      invited_by_profile_id: user.id,
-      invited_profile_id: input.invited_profile_id ?? null,
-      invited_email: input.invited_email ?? null,
-      invitation_message: input.invitation_message ?? null,
-      invitation_token: randomUUID(),
-      max_uses: input.max_uses,
-      expires_at: expiresAt.toISOString(),
-    })
-    .select()
-    .single();
+  try {
+    const invitation = await prisma.community_invitations.create({
+      data: {
+        community_id: communityId,
+        invited_by_profile_id: user.id,
+        invited_profile_id: input.invited_profile_id ?? null,
+        invited_email: input.invited_email ?? null,
+        invitation_message: input.invitation_message ?? null,
+        invitation_token: randomUUID(),
+        max_uses: input.max_uses,
+        expires_at: expiresAt,
+      },
+    });
 
-  if (error || !invitation) {
+    // Resolve invited_profile_id from email if not provided directly
+    let invitedProfileId = invitation.invited_profile_id;
+
+    if (!invitedProfileId && invitation.invited_email) {
+      const profile = await prisma.profiles.findFirst({
+        where: { email: invitation.invited_email },
+        select: { id: true },
+      });
+
+      if (profile) {
+        invitedProfileId = profile.id;
+        await prisma.community_invitations.update({
+          where: { id: invitation.id },
+          data: { invited_profile_id: profile.id },
+        });
+      }
+    }
+
+    // Send notification to the invitee if we have their profile ID
+    if (invitedProfileId) {
+      const community = await prisma.communities.findUnique({
+        where: { id: communityId },
+        select: { community_name: true },
+      });
+
+      const communityName = community?.community_name || "a community";
+
+      await prisma.notifications.create({
+        data: {
+          profile_id: invitedProfileId,
+          notification_type: "community_invite",
+          title: "Community Invitation",
+          body: `You've been invited to join "${communityName}"`,
+          related_community_id: communityId,
+          data_json: {
+            invitation_id: invitation.id,
+            community_id: communityId,
+            invited_by_profile_id: user.id,
+          },
+        },
+      });
+    }
+
+    return successResponse<CommunityInvitationResponse>(
+      { invitation: invitation as any },
+      undefined,
+      201
+    );
+  } catch (error) {
     console.error("Error creating invitation:", error);
     return ApiErrors.serverError();
   }
-
-  // Resolve invited_profile_id from email if not provided directly
-  let invitedProfileId = invitation.invited_profile_id;
-
-  if (!invitedProfileId && invitation.invited_email) {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", invitation.invited_email)
-      .single();
-
-    if (profile) {
-      invitedProfileId = profile.id;
-      await supabase
-        .from("community_invitations")
-        .update({ invited_profile_id: profile.id })
-        .eq("id", invitation.id);
-    }
-  }
-
-  // Send notification to the invitee if we have their profile ID
-  if (invitedProfileId) {
-    const { data: community } = await supabase
-      .from("communities")
-      .select("community_name")
-      .eq("id", communityId)
-      .single();
-
-    const communityName = community?.community_name || "a community";
-
-    await supabase.from("notifications").insert({
-      profile_id: invitedProfileId,
-      notification_type: "community_invite",
-      title: "Community Invitation",
-      body: `You've been invited to join "${communityName}"`,
-      related_community_id: communityId,
-      data_json: {
-        invitation_id: invitation.id,
-        community_id: communityId,
-        invited_by_profile_id: user.id,
-      },
-    });
-  }
-
-  return successResponse<CommunityInvitationResponse>(
-    { invitation },
-    undefined,
-    201
-  );
 });
 
 export async function PUT() {

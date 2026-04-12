@@ -2835,6 +2835,9 @@ export type Database = {
         | "completed"
         | "cancelled"
         | "refunded"
+        | "loaned_out"
+        | "returned"
+        | "overdue"
       community_access_type: "open" | "request_to_join" | "invite_only"
       conversation_type: "direct" | "community" | "booking"
       fulfillment_method: "pickup" | "delivery" | "online" | "at_location"
@@ -2842,7 +2845,7 @@ export type Database = {
       join_method: "invite_link" | "direct_invite" | "request"
       member_role: "owner" | "admin" | "moderator" | "member"
       membership_status: "pending" | "active" | "removed" | "left"
-      offering_category: "product" | "service" | "share" | "event"
+      offering_category: "product" | "service" | "event"
       payment_method: "in_app" | "cash" | "external"
       payment_status: "pending" | "paid" | "refunded" | "cancelled"
       price_type: "fixed" | "negotiable" | "free" | "donation"
@@ -2997,6 +3000,9 @@ export const Constants = {
         "completed",
         "cancelled",
         "refunded",
+        "loaned_out",
+        "returned",
+        "overdue",
       ],
       community_access_type: ["open", "request_to_join", "invite_only"],
       conversation_type: ["direct", "community", "booking"],
@@ -3005,7 +3011,7 @@ export const Constants = {
       join_method: ["invite_link", "direct_invite", "request"],
       member_role: ["owner", "admin", "moderator", "member"],
       membership_status: ["pending", "active", "removed", "left"],
-      offering_category: ["product", "service", "share", "event"],
+      offering_category: ["product", "service", "event"],
       payment_method: ["in_app", "cash", "external"],
       payment_status: ["pending", "paid", "refunded", "cancelled"],
       price_type: ["fixed", "negotiable", "free", "donation"],

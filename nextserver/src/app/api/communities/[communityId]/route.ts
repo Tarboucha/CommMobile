@@ -6,13 +6,13 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { updateCommunitySchema } from "@/lib/validations/community";
 import type { CommunityResponse } from "@/types/community";
 
 /**
  * GET /api/communities/[communityId]
- * Get a single community — RLS handles visibility
+ * Get a single community
  */
 export const GET = withAuth(async (user, _request, params) => {
   const communityId = params?.communityId;
@@ -20,20 +20,15 @@ export const GET = withAuth(async (user, _request, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
+  const community = await prisma.communities.findFirst({
+    where: { id: communityId, deleted_at: null },
+  });
 
-  const { data: community, error } = await supabase
-    .from("communities")
-    .select("*")
-    .eq("id", communityId)
-    .is("deleted_at", null)
-    .single();
-
-  if (error || !community) {
+  if (!community) {
     return ApiErrors.notFound("Community not found");
   }
 
-  return successResponse<CommunityResponse>({ community });
+  return successResponse<CommunityResponse>({ community: community as any });
 });
 
 /**
@@ -46,17 +41,14 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check user is admin/owner
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .in("member_role", ["owner", "admin"])
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+      member_role: { in: ["owner", "admin"] },
+    },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("Only owners and admins can update the community");
@@ -74,20 +66,17 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const { data: updated, error } = await supabase
-    .from("communities")
-    .update(validation.data)
-    .eq("id", communityId)
-    .is("deleted_at", null)
-    .select()
-    .single();
+  try {
+    const updated = await prisma.communities.update({
+      where: { id: communityId },
+      data: validation.data,
+    });
 
-  if (error || !updated) {
+    return successResponse<CommunityResponse>({ community: updated as any });
+  } catch (error) {
     console.error("Error updating community:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<CommunityResponse>({ community: updated });
 });
 
 /**
@@ -100,36 +89,30 @@ export const DELETE = withAuth(async (user, _request, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Only owner can delete
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .eq("member_role", "owner")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+      member_role: "owner",
+    },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("Only the owner can delete the community");
   }
 
-  const { error } = await supabase
-    .from("communities")
-    .update({
-      deleted_at: new Date().toISOString(),
-      is_active: false,
-    })
-    .eq("id", communityId);
+  try {
+    await prisma.communities.update({
+      where: { id: communityId },
+      data: { deleted_at: new Date(), is_active: false },
+    });
 
-  if (error) {
+    return successResponse({ message: "Community deleted" });
+  } catch (error) {
     console.error("Error deleting community:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "Community deleted" });
 });
 
 export async function POST() {

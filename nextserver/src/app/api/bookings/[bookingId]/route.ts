@@ -6,20 +6,30 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { bookingStatusUpdateSchema } from "@/lib/validations/booking";
 
 // ============================================================================
 // Allowed status transitions
 // ============================================================================
 
-type BookingStatus = "pending" | "confirmed" | "in_progress" | "ready" | "completed" | "cancelled";
+type BookingStatus =
+  | "pending"
+  | "confirmed"
+  | "in_progress"
+  | "ready"
+  | "completed"
+  | "cancelled"
+  | "loaned_out"
+  | "returned";
 
 const PROVIDER_TRANSITIONS: Record<string, BookingStatus[]> = {
   pending: ["confirmed", "cancelled"],
-  confirmed: ["in_progress", "cancelled"],
+  confirmed: ["in_progress", "loaned_out", "cancelled"],
   in_progress: ["ready", "cancelled"],
   ready: ["completed"],
+  loaned_out: [],
+  returned: ["completed"],
 };
 
 const CUSTOMER_TRANSITIONS: Record<string, BookingStatus[]> = {
@@ -31,26 +41,17 @@ const CUSTOMER_TRANSITIONS: Record<string, BookingStatus[]> = {
 // GET /api/bookings/:bookingId
 // ============================================================================
 
-/**
- * Fetch a booking with items, snapshots, and status history.
- * Accessible by the booking customer or the provider.
- */
 export const GET = withAuth(async (user, _request: NextRequest, params) => {
   const { bookingId } = params!;
-  const supabase = await createClient();
 
-  // Fetch booking
-  const { data: booking, error: bookingError } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("id", bookingId)
-    .single();
+  const booking = await prisma.bookings.findUnique({
+    where: { id: bookingId },
+  });
 
-  if (bookingError || !booking) {
+  if (!booking) {
     return ApiErrors.notFound("Booking");
   }
 
-  // Access check: customer or provider (direct column check)
   const isCustomer = booking.customer_id === user.id;
   const isProvider = booking.provider_id === user.id;
 
@@ -58,70 +59,56 @@ export const GET = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.forbidden("You are not a party to this booking");
   }
 
-  // Fetch items with provider + schedule snapshots
-  const { data: bookingItems } = await supabase
-    .from("booking_items")
-    .select(`
-      *,
-      booking_provider_snapshots (*),
-      booking_schedule_snapshots (*)
-    `)
-    .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true });
+  try {
+    const [bookingItems, customerSnapshot, deliverySnapshot, communitySnapshot, statusHistory] =
+      await Promise.all([
+        prisma.booking_items.findMany({
+          where: { booking_id: bookingId },
+          include: {
+            booking_provider_snapshots: true,
+            booking_schedule_snapshots: true,
+          },
+          orderBy: { created_at: "asc" },
+        }),
+        prisma.booking_customer_snapshots.findFirst({
+          where: { booking_id: bookingId },
+        }),
+        prisma.booking_delivery_snapshots.findFirst({
+          where: { booking_id: bookingId },
+          include: { snapshot_addresses: true },
+        }),
+        prisma.booking_community_snapshots.findFirst({
+          where: { booking_id: bookingId },
+        }),
+        prisma.booking_status_history.findMany({
+          where: { booking_id: bookingId },
+          orderBy: { created_at: "asc" },
+        }),
+      ]);
 
-  // Fetch booking-level snapshots
-  const { data: customerSnapshot } = await supabase
-    .from("booking_customer_snapshots")
-    .select("*")
-    .eq("booking_id", bookingId)
-    .maybeSingle();
-
-  const { data: deliverySnapshot } = await supabase
-    .from("booking_delivery_snapshots")
-    .select("*, snapshot_addresses(*)")
-    .eq("booking_id", bookingId)
-    .maybeSingle();
-
-  const { data: communitySnapshot } = await supabase
-    .from("booking_community_snapshots")
-    .select("*")
-    .eq("booking_id", bookingId)
-    .maybeSingle();
-
-  // Fetch status history
-  const { data: statusHistory } = await supabase
-    .from("booking_status_history")
-    .select("*")
-    .eq("booking_id", bookingId)
-    .order("created_at", { ascending: true });
-
-  return successResponse({
-    booking: {
-      ...booking,
-      booking_items: bookingItems || [],
-      customer_snapshot: customerSnapshot || null,
-      delivery_snapshot: deliverySnapshot || null,
-      community_snapshot: communitySnapshot || null,
-      status_history: statusHistory || [],
-    },
-  });
+    return successResponse({
+      booking: {
+        ...booking,
+        booking_items: bookingItems,
+        customer_snapshot: customerSnapshot || null,
+        delivery_snapshot: deliverySnapshot || null,
+        community_snapshot: communitySnapshot || null,
+        status_history: statusHistory,
+      } as any,
+    });
+  } catch (error) {
+    console.error("Error fetching booking details:", error);
+    return ApiErrors.serverError();
+  }
 });
 
 // ============================================================================
 // PATCH /api/bookings/:bookingId
 // ============================================================================
 
-/**
- * Update booking status.
- * Provider: can accept, advance, refuse, or cancel.
- * Customer: can cancel (pending/confirmed only).
- * DB trigger handles notifications + status history automatically.
- */
 export const PATCH = withAuth(async (user, request: NextRequest, params) => {
   const { bookingId } = params!;
-  const supabase = await createClient();
 
-  // Parse body
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -136,18 +123,15 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
 
   const { booking_status: newStatus, cancellation_reason } = validation.data;
 
-  // Fetch booking
-  const { data: booking, error: bookingError } = await supabase
-    .from("bookings")
-    .select("id, customer_id, provider_id, booking_status")
-    .eq("id", bookingId)
-    .single();
+  const booking = await prisma.bookings.findUnique({
+    where: { id: bookingId },
+    select: { id: true, customer_id: true, provider_id: true, booking_status: true },
+  });
 
-  if (bookingError || !booking) {
+  if (!booking) {
     return ApiErrors.notFound("Booking");
   }
 
-  // Determine role
   const isCustomer = booking.customer_id === user.id;
   const isProvider = booking.provider_id === user.id;
 
@@ -155,7 +139,6 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("You are not a party to this booking");
   }
 
-  // Validate transition
   const currentStatus = booking.booking_status as string;
   const allowedTransitions = isProvider
     ? PROVIDER_TRANSITIONS[currentStatus]
@@ -168,45 +151,43 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     );
   }
 
-  // Build update payload
   const updateData: Record<string, unknown> = {
     booking_status: newStatus,
   };
 
-  // Set timestamps based on new status
   switch (newStatus) {
     case "confirmed":
-      updateData.confirmed_at = new Date().toISOString();
+      updateData.confirmed_at = new Date();
       break;
     case "ready":
-      updateData.ready_at = new Date().toISOString();
+      updateData.ready_at = new Date();
       break;
     case "completed":
-      updateData.completed_at = new Date().toISOString();
+      updateData.completed_at = new Date();
       break;
     case "cancelled":
-      updateData.cancelled_at = new Date().toISOString();
+      updateData.cancelled_at = new Date();
       updateData.cancelled_by_id = user.id;
       if (cancellation_reason) {
         updateData.cancellation_reason = cancellation_reason;
       }
       break;
+    case "loaned_out":
+      updateData.updated_at = new Date();
+      break;
   }
 
-  // Update booking — DB trigger handles notifications + status history
-  const { data: updatedBooking, error: updateError } = await supabase
-    .from("bookings")
-    .update(updateData)
-    .eq("id", bookingId)
-    .select("*")
-    .single();
+  try {
+    const updatedBooking = await prisma.bookings.update({
+      where: { id: bookingId },
+      data: updateData as any,
+    });
 
-  if (updateError || !updatedBooking) {
-    console.error("Error updating booking status:", updateError);
+    return successResponse({ booking: updatedBooking as any });
+  } catch (error) {
+    console.error("Error updating booking status:", error);
     return ApiErrors.serverError("Failed to update booking status");
   }
-
-  return successResponse({ booking: updatedBooking });
 });
 
 export async function POST() {

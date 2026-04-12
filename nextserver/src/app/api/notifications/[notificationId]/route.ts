@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors, handleUnsupportedMethod } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import type { NotificationResponse } from "@/types/notification";
 
 /**
@@ -14,32 +14,25 @@ export const PATCH = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Notification ID is required");
   }
 
-  const supabase = await createClient();
+  const notification = await prisma.notifications.findFirst({
+    where: { id: notificationId, profile_id: user.id },
+  });
 
-  const { data: notification, error: fetchError } = await supabase
-    .from("notifications")
-    .select("*")
-    .eq("id", notificationId)
-    .eq("profile_id", user.id)
-    .single();
-
-  if (fetchError || !notification) {
+  if (!notification) {
     return ApiErrors.notFound("Notification not found");
   }
 
-  const { data: updated, error: updateError } = await supabase
-    .from("notifications")
-    .update({ is_read: true, read_at: new Date().toISOString() })
-    .eq("id", notificationId)
-    .select()
-    .single();
+  try {
+    const updated = await prisma.notifications.update({
+      where: { id: notificationId },
+      data: { is_read: true, read_at: new Date() },
+    });
 
-  if (updateError || !updated) {
-    console.error("Failed to mark notification as read:", updateError);
+    return successResponse<NotificationResponse>({ notification: updated as any });
+  } catch (error) {
+    console.error("Failed to mark notification as read:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<NotificationResponse>({ notification: updated });
 });
 
 /**
@@ -52,20 +45,16 @@ export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Notification ID is required");
   }
 
-  const supabase = await createClient();
+  try {
+    await prisma.notifications.deleteMany({
+      where: { id: notificationId, profile_id: user.id },
+    });
 
-  const { error: deleteError } = await supabase
-    .from("notifications")
-    .delete()
-    .eq("id", notificationId)
-    .eq("profile_id", user.id);
-
-  if (deleteError) {
-    console.error("Failed to delete notification:", deleteError);
+    return successResponse({ message: "Notification deleted" });
+  } catch (error) {
+    console.error("Failed to delete notification:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "Notification deleted" });
 });
 
 export async function GET() {

@@ -6,10 +6,10 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { browseFilterSchema } from "@/lib/validations/community";
 import {
-  applyCursorPagination,
+  decodeCursor,
   buildPaginatedResponse,
 } from "@/lib/utils/pagination";
 
@@ -19,7 +19,6 @@ import {
  * excluding communities the user is already a member of.
  */
 export const GET = withAuth(async (user, request: NextRequest) => {
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -31,47 +30,60 @@ export const GET = withAuth(async (user, request: NextRequest) => {
 
   const { limit, after, search } = validation.data;
 
-  // Get community IDs the user is already a member of (any status)
-  const { data: memberships, error: memberError } = await supabase
-    .from("community_members")
-    .select("community_id")
-    .eq("profile_id", user.id)
-    .in("membership_status", ["active", "pending"]);
+  try {
+    // Get community IDs the user is already a member of (any status)
+    const memberships = await prisma.community_members.findMany({
+      where: {
+        profile_id: user.id,
+        membership_status: { in: ["active", "pending"] },
+      },
+      select: { community_id: true },
+    });
 
-  if (memberError) {
-    console.error("Error fetching memberships:", memberError);
-    return ApiErrors.serverError();
-  }
+    const excludeIds = memberships.map((m) => m.community_id);
 
-  const excludeIds = memberships?.map((m) => m.community_id) || [];
+    const where: any = {
+      is_active: true,
+      deleted_at: null,
+      access_type: { in: ["open", "request_to_join"] },
+    };
 
-  let query = supabase
-    .from("communities")
-    .select("*")
-    .eq("is_active", true)
-    .is("deleted_at", null)
-    .in("access_type", ["open", "request_to_join"]);
+    // Exclude communities the user is already part of
+    if (excludeIds.length > 0) {
+      where.id = { notIn: excludeIds };
+    }
 
-  // Exclude communities the user is already part of
-  if (excludeIds.length > 0) {
-    query = query.not("id", "in", `(${excludeIds.join(",")})`);
-  }
+    // Search by name
+    if (search) {
+      where.community_name = { contains: search, mode: "insensitive" };
+    }
 
-  // Search by name
-  if (search) {
-    query = query.ilike("community_name", `%${search}%`);
-  }
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  query = applyCursorPagination(query, { limit, after });
+    const communities = await prisma.communities.findMany({
+      where,
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  const { data: communities, error } = await query;
-
-  if (error) {
+    return successResponse(
+      buildPaginatedResponse(
+        communities.map((c) => ({ ...c, created_at: c.created_at?.toISOString() ?? null }) as any),
+        limit
+      )
+    );
+  } catch (error) {
     console.error("Error browsing communities:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(communities || [], limit));
 });
 
 export async function POST() {

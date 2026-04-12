@@ -39,7 +39,10 @@ export type BookingStatus =
   | 'ready'
   | 'completed'
   | 'cancelled'
-  | 'refunded';
+  | 'refunded'
+  | 'loaned_out'
+  | 'returned'
+  | 'overdue';
 
 // ============================================================================
 // Booking API Types
@@ -52,7 +55,13 @@ export interface BookingItemPayload {
   fulfillment_method: string;
   schedule_id: string | null;
   instance_date: string | null;
+  instance_start_time?: string | null;
+  instance_end_time?: string | null;
   special_instructions?: string;
+  is_loan?: boolean;
+  loan_start_date?: string;
+  loan_due_date?: string;
+  deposit_amount?: number;
 }
 
 export interface BookingCreatePayload {
@@ -63,6 +72,8 @@ export interface BookingCreatePayload {
   special_instructions?: string;
   contact_phone?: string;
   idempotency_key: string;
+  offer_amount?: number;
+  offer_note?: string;
 }
 
 export interface BookingResponse {
@@ -76,6 +87,7 @@ export interface BookingResponse {
   currency_code: string;
   payment_method: string;
   created_at: string;
+  conversation_id: string | null;
 }
 
 // ============================================================================
@@ -129,7 +141,15 @@ export interface BookingItemDetail {
   snapshot_description: string | null;
   snapshot_image_url: string | null;
   snapshot_category: string;
+  snapshot_transaction_type: string | null;
   special_instructions: string | null;
+  instance_start_time: string | null;
+  instance_end_time: string | null;
+  is_loan: boolean;
+  loan_start_date: string | null;
+  loan_due_date: string | null;
+  loan_returned_at: string | null;
+  deposit_amount: number | null;
   created_at: string;
   // Nested snapshots
   booking_provider_snapshots: ProviderSnapshot | null;
@@ -155,6 +175,7 @@ export interface ScheduleSnapshot {
   snapshot_end_time: string;
   snapshot_slots_available: number;
   snapshot_slot_label: string | null;
+  snapshot_slot_duration_minutes: number | null;
   had_exception: boolean;
 }
 
@@ -210,6 +231,8 @@ export interface BookingDetail {
   subtotal_amount: number;
   service_fee_amount: number;
   total_amount: number;
+  deposit_total: number;
+  deposit_status: string;
   payment_method: string;
   payment_status: string;
   delivery_address_id: string | null;
@@ -236,4 +259,32 @@ export interface BookingDetail {
 export interface BookingStatusUpdatePayload {
   booking_status: BookingStatus;
   cancellation_reason?: string;
+}
+
+// ============================================================================
+// Price Offers (negotiation)
+// ============================================================================
+
+export type OfferStatus = 'pending' | 'accepted' | 'declined' | 'expired' | 'superseded';
+
+export interface PriceOffer {
+  id: string;
+  booking_id: string;
+  conversation_id: string;
+  message_id: string;
+  offered_by: string;
+  offered_amount: number;
+  currency_code: string;
+  note: string | null;
+  offer_status: OfferStatus;
+  expires_at: string;
+  responded_at: string | null;
+  created_at: string;
+}
+
+export interface OfferActionPayload {
+  action: 'counter' | 'accept' | 'decline';
+  offered_amount?: number;
+  note?: string;
+  offer_id?: string;
 }

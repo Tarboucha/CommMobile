@@ -6,19 +6,15 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { notificationFilterSchema } from "@/lib/validations/notification";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 
 /**
  * GET /api/notifications
  * List notifications for the authenticated user (cursor-based pagination)
  */
 export const GET = withAuth(async (user, request: NextRequest) => {
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(new URL(request.url).searchParams.entries());
 
   const validation = notificationFilterSchema.safeParse(searchParams);
@@ -28,48 +24,54 @@ export const GET = withAuth(async (user, request: NextRequest) => {
 
   const { is_read, notification_type, limit, after } = validation.data;
 
-  // Build main query
-  let query = supabase
-    .from("notifications")
-    .select("*")
-    .eq("profile_id", user.id);
+  try {
+    // Build where clause
+    const where: any = { profile_id: user.id };
+    if (typeof is_read === "boolean") where.is_read = is_read;
+    if (notification_type) where.notification_type = notification_type;
 
-  if (typeof is_read === "boolean") {
-    query = query.eq("is_read", is_read);
-  }
+    // Cursor filter
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          {
+            created_at: { equals: new Date(cursor.created_at) },
+            id: { lt: cursor.id },
+          },
+        ];
+      }
+    }
 
-  if (notification_type) {
-    query = query.eq("notification_type", notification_type);
-  }
+    // Fetch notifications + unread count in parallel
+    const [notifications, unreadCount] = await Promise.all([
+      prisma.notifications.findMany({
+        where,
+        orderBy: [{ created_at: "desc" }, { id: "desc" }],
+        take: limit + 1, // fetch one extra to detect has_more
+      }),
+      prisma.notifications.count({
+        where: { profile_id: user.id, is_read: false },
+      }),
+    ]);
 
-  query = applyCursorPagination(query, { limit, after });
+    const paginated = buildPaginatedResponse(
+      notifications.map((n) => ({
+        ...n,
+        created_at: n.created_at?.toISOString() ?? null,
+      })),
+      limit
+    );
 
-  // Build unread count query in parallel
-  const unreadQuery = supabase
-    .from("notifications")
-    .select("*", { count: "exact", head: true })
-    .eq("profile_id", user.id)
-    .eq("is_read", false);
-
-  const [{ data: notifications, error }, { count: unreadCount, error: unreadError }] =
-    await Promise.all([query, unreadQuery]);
-
-  if (error) {
+    return successResponse({
+      ...paginated,
+      unread_count: unreadCount,
+    });
+  } catch (error) {
     console.error("Error fetching notifications:", error);
     return ApiErrors.serverError();
   }
-
-  if (unreadError) {
-    console.error("Error fetching unread count:", unreadError);
-    return ApiErrors.serverError();
-  }
-
-  const paginated = buildPaginatedResponse(notifications || [], limit);
-
-  return successResponse({
-    ...paginated,
-    unread_count: unreadCount || 0,
-  });
 });
 
 /**
@@ -77,19 +79,16 @@ export const GET = withAuth(async (user, request: NextRequest) => {
  * Delete all notifications for the authenticated user
  */
 export const DELETE = withAuth(async (user) => {
-  const supabase = await createClient();
+  try {
+    await prisma.notifications.deleteMany({
+      where: { profile_id: user.id },
+    });
 
-  const { error } = await supabase
-    .from("notifications")
-    .delete()
-    .eq("profile_id", user.id);
-
-  if (error) {
+    return successResponse({ message: "All notifications deleted" });
+  } catch (error) {
     console.error("Failed to delete all notifications:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "All notifications deleted" });
 });
 
 export async function POST() {

@@ -6,33 +6,30 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { createScheduleSchema } from "@/lib/validations/offering";
 
 /**
  * GET /api/offerings/[offeringId]/schedules
  * List availability schedules for an offering
  */
-export const GET = withAuth(async (user, _request: NextRequest, params) => {
+export const GET = withAuth(async (_user, _request: NextRequest, params) => {
   const offeringId = params?.offeringId;
   if (!offeringId) {
     return ApiErrors.badRequest("Offering ID is required");
   }
 
-  const supabase = await createClient();
+  try {
+    const schedules = await prisma.availability_schedules.findMany({
+      where: { offering_id: offeringId },
+      orderBy: { created_at: "desc" },
+    });
 
-  const { data: schedules, error } = await supabase
-    .from("availability_schedules")
-    .select("*")
-    .eq("offering_id", offeringId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
+    return successResponse({ schedules: schedules as any });
+  } catch (error) {
     console.error("Error fetching schedules:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ schedules: schedules || [] });
 });
 
 /**
@@ -45,15 +42,10 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Offering ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Verify offering ownership
-  const { data: offering } = await supabase
-    .from("offerings")
-    .select("id, provider_id")
-    .eq("id", offeringId)
-    .is("deleted_at", null)
-    .single();
+  const offering = await prisma.offerings.findFirst({
+    where: { id: offeringId, deleted_at: null },
+    select: { id: true, provider_id: true },
+  });
 
   if (!offering) {
     return ApiErrors.notFound("Offering");
@@ -63,7 +55,6 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("You can only manage schedules for your own offerings");
   }
 
-  // Parse and validate
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -78,28 +69,38 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
 
   const input = validation.data;
 
-  const { data: schedule, error: createError } = await supabase
-    .from("availability_schedules")
-    .insert({
-      offering_id: offeringId,
-      rrule: input.rrule,
-      dtstart: input.dtstart,
-      dtend: input.dtend ?? null,
-      start_time: input.start_time,
-      end_time: input.end_time,
-      slots_available: input.slots_available,
-      slot_label: input.slot_label ?? null,
-      is_active: input.is_active,
-    })
-    .select("*")
-    .single();
+  try {
+    const schedule = await prisma.availability_schedules.create({
+      data: {
+        offering_id: offeringId,
+        rrule: input.rrule,
+        // Prisma expects Date objects for @db.Date / @db.Time columns,
+        // not plain YYYY-MM-DD / HH:MM strings from the API
+        dtstart: new Date(`${input.dtstart}T00:00:00Z`),
+        dtend: input.dtend ? new Date(`${input.dtend}T00:00:00Z`) : null,
+        start_time: new Date(`1970-01-01T${input.start_time}:00Z`),
+        end_time: new Date(`1970-01-01T${input.end_time}:00Z`),
+        slots_available: input.slots_available,
+        slot_label: input.slot_label ?? null,
+        is_active: input.is_active,
+        // Loan fields (only relevant for loan offerings)
+        ...(input.loan_duration_days !== undefined && {
+          loan_duration_days: input.loan_duration_days,
+        }),
+        ...(input.loan_max_duration_days !== undefined && {
+          loan_max_duration_days: input.loan_max_duration_days,
+        }),
+        ...(input.slot_duration_minutes !== undefined && {
+          slot_duration_minutes: input.slot_duration_minutes,
+        }),
+      },
+    });
 
-  if (createError || !schedule) {
-    console.error("Failed to create schedule:", createError);
+    return successResponse({ schedule: schedule as any }, undefined, 201);
+  } catch (error) {
+    console.error("Failed to create schedule:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ schedule }, undefined, 201);
 });
 
 export async function PUT() {

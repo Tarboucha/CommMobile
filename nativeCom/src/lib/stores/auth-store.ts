@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase/client';
 import { fetchMe } from '@/lib/api/auth';
+import { queryClient } from '@/lib/query-client';
 import type { User } from '@/types/auth';
 
 interface AuthState {
@@ -33,7 +34,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   setUser: (user) => set({ user, error: null, isInitialized: true }),
 
-  clearUser: () => set({ user: null, error: null, isInitialized: true }),
+  clearUser: () => {
+    queryClient.clear();
+    set({ user: null, error: null, isInitialized: true });
+  },
 
   setLoading: (isLoading) => set({ isLoading }),
 

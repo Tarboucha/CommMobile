@@ -4,7 +4,7 @@ import {
   handleUnsupportedMethod,
   ApiErrors,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 /**
  * POST /api/communities/[communityId]/leave
@@ -17,17 +17,12 @@ export const POST = withAuth(async (user, _request, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
+  const membership = await prisma.community_members.findFirst({
+    where: { community_id: communityId, profile_id: user.id },
+    select: { id: true, member_role: true, membership_status: true },
+  });
 
-  // Fetch user's membership
-  const { data: membership, error: fetchError } = await supabase
-    .from("community_members")
-    .select("id, member_role, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .single();
-
-  if (fetchError || !membership) {
+  if (!membership) {
     return ApiErrors.notFound("You are not a member of this community");
   }
 
@@ -35,27 +30,26 @@ export const POST = withAuth(async (user, _request, params) => {
     return ApiErrors.conflict("You are not an active member of this community");
   }
 
-  // Owner can't leave
   if (membership.member_role === "owner") {
     return ApiErrors.forbidden(
       "The owner cannot leave the community. Transfer ownership first."
     );
   }
 
-  const { error } = await supabase
-    .from("community_members")
-    .update({
-      membership_status: "left",
-      membership_removed_at: new Date().toISOString(),
-    })
-    .eq("id", membership.id);
+  try {
+    await prisma.community_members.update({
+      where: { id: membership.id },
+      data: {
+        membership_status: "left",
+        membership_removed_at: new Date(),
+      },
+    });
 
-  if (error) {
+    return successResponse({ message: "You have left the community" });
+  } catch (error) {
     console.error("Error leaving community:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "You have left the community" });
 });
 
 export async function GET() {

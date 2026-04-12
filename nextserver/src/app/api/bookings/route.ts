@@ -5,9 +5,10 @@ import {
   ApiErrors,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
+import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { bookingCreateSchema, type BookingCreateInput } from "@/lib/validations/booking";
-import type { Json } from "@/types/supabase";
+
 
 /**
  * POST /api/bookings
@@ -89,6 +90,7 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
       community_id,
       provider_id,
       category,
+      transaction_type,
       title,
       description,
       price_amount,
@@ -97,6 +99,9 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
       is_delivery_available,
       delivery_fee_amount,
       pickup_address_id,
+      requires_deposit,
+      deposit_amount,
+      price_type,
       version,
       status,
       offering_images (
@@ -169,6 +174,7 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
   const currencyCode = offerings[0]?.currency_code || "EUR";
   let subtotalAmount = 0;
   let totalDeliveryFees = 0;
+  let totalDeposit = 0;
 
   const itemsForRpc: Array<Record<string, unknown>> = [];
 
@@ -189,11 +195,13 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
       totalDeliveryFees += deliveryFee;
     }
 
-    // Build provider name for snapshot
-    const provider = offering.profiles as any;
-    const providerName = provider
-      ? [provider.first_name, provider.last_name].filter(Boolean).join(" ") || "Unknown"
-      : "Unknown";
+    // Loan-specific: deposit (use offering's deposit_amount if requires_deposit)
+    let itemDepositAmount: number | null = null;
+    const isLoanItem = item.is_loan === true;
+    if (isLoanItem && offering.requires_deposit && offering.deposit_amount) {
+      itemDepositAmount = Number(offering.deposit_amount);
+      totalDeposit += itemDepositAmount * item.quantity;
+    }
 
     itemsForRpc.push({
       offering_id: item.offering_id,
@@ -213,18 +221,21 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
         offering.offering_images?.[0]?.image_url ||
         null,
       snapshot_category: offering.category,
+      snapshot_transaction_type: offering.transaction_type || "purchase",
+      snapshot_price_type: offering.price_type || "fixed",
       special_instructions: item.special_instructions || null,
-      // Extra fields for post-RPC snapshot creation
-      _provider_id: offering.provider_id,
-      _provider_name: providerName,
-      _provider_email: provider?.email || null,
-      _provider_phone: provider?.phone || null,
-      _provider_avatar_url: provider?.avatar_url || null,
-      _pickup_address_id: offering.pickup_address_id || null,
+      // Time-slotted fields
+      instance_start_time: item.instance_start_time || null,
+      instance_end_time: item.instance_end_time || null,
+      // Loan fields
+      is_loan: isLoanItem,
+      loan_start_date: item.loan_start_date || null,
+      loan_due_date: item.loan_due_date || null,
+      deposit_amount: itemDepositAmount,
     });
   }
 
-  const totalAmount = subtotalAmount + totalDeliveryFees;
+  const totalAmount = subtotalAmount + totalDeliveryFees + totalDeposit;
 
   // ============================================================================
   // Step 6: Build booking data and call RPC
@@ -241,16 +252,18 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
     subtotal_amount: subtotalAmount,
     service_fee_amount: 0,
     total_amount: totalAmount,
+    deposit_total: totalDeposit,
+    deposit_status: totalDeposit > 0 ? "held" : "none",
+    // Offer fields (passed to RPC for conversation + price_offer creation)
+    ...(input.offer_amount && { offer_amount: input.offer_amount }),
+    ...(input.offer_note && { offer_note: input.offer_note }),
   };
-
-  // Strip internal fields before sending to RPC
-  const rpcItems = itemsForRpc.map(({ _provider_id, _provider_name, _provider_email, _provider_phone, _provider_avatar_url, _pickup_address_id, ...rest }) => rest);
 
   const { data: newBookingId, error: rpcError } = await supabase.rpc(
     "create_booking_with_items",
     {
-      p_booking: bookingData as unknown as Json,
-      p_items: rpcItems as unknown as Json,
+      p_booking: bookingData,
+      p_items: itemsForRpc,
     }
   );
 
@@ -289,172 +302,23 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
   }
 
   // ============================================================================
-  // Step 7: Fetch created booking + items
+  // Step 7: Fetch created booking (snapshots already created atomically inside
+  // the RPC via insert_booking_aux_snapshots).
   // ============================================================================
-  const { data: newBooking, error: fetchBookingError } = await supabase
-    .from("bookings")
-    .select("*")
-    .eq("id", newBookingId)
-    .single();
+  const newBooking = await prisma.bookings.findUnique({
+    where: { id: newBookingId as string },
+  });
 
-  if (fetchBookingError || !newBooking) {
-    console.error("Error fetching created booking:", fetchBookingError);
+  if (!newBooking) {
     return ApiErrors.serverError("Booking created but failed to retrieve details");
   }
 
-  const { data: bookingItems, error: fetchItemsError } = await supabase
-    .from("booking_items")
-    .select("*")
-    .eq("booking_id", newBookingId);
+  // Fetch the conversation created by the RPC
+  const conversation = await prisma.conversations.findFirst({
+    where: { booking_id: newBookingId as string, conversation_type: "booking" },
+    select: { id: true },
+  });
 
-  if (fetchItemsError) {
-    console.error("Error fetching booking items:", fetchItemsError);
-  }
-
-  // ============================================================================
-  // Step 8: Create snapshots (non-atomic — failures logged, don't rollback)
-  // ============================================================================
-
-  // 8a. Customer snapshot
-  try {
-    await supabase.from("booking_customer_snapshots").insert({
-      booking_id: newBookingId,
-      original_customer_id: user.id,
-      snapshot_display_name: [user.first_name, user.last_name].filter(Boolean).join(" ") || null,
-      snapshot_first_name: user.first_name || null,
-      snapshot_last_name: user.last_name || null,
-      snapshot_email: user.email || null,
-      snapshot_phone: input.contact_phone || user.phone || null,
-      snapshot_avatar_url: user.avatar_url || null,
-    });
-  } catch (err) {
-    console.error("Failed to create customer snapshot:", err);
-  }
-
-  // 8b. Provider snapshots (per item)
-  const createdItems = bookingItems || [];
-  for (let i = 0; i < createdItems.length; i++) {
-    const bookingItem = createdItems[i];
-    const rpcItem = itemsForRpc[i];
-    if (!rpcItem) continue;
-
-    try {
-      // Create pickup address snapshot if available
-      let snapshotAddressId: string | null = null;
-      const pickupAddressId = rpcItem._pickup_address_id as string | null;
-
-      if (pickupAddressId) {
-        const { data: pickupAddr } = await supabase
-          .from("addresses")
-          .select("*")
-          .eq("id", pickupAddressId)
-          .is("deleted_at", null)
-          .single();
-
-        if (pickupAddr) {
-          const { data: snapAddr } = await supabase
-            .from("snapshot_addresses")
-            .insert({
-              original_address_id: pickupAddr.id,
-              street_name: pickupAddr.street_name,
-              street_number: pickupAddr.street_number,
-              apartment_unit: pickupAddr.apartment_unit,
-              city: pickupAddr.city,
-              postal_code: pickupAddr.postal_code,
-              country: pickupAddr.country,
-              latitude: pickupAddr.latitude,
-              longitude: pickupAddr.longitude,
-              instructions: pickupAddr.delivery_instructions,
-            })
-            .select("id")
-            .single();
-
-          snapshotAddressId = snapAddr?.id || null;
-        }
-      }
-
-      await supabase.from("booking_provider_snapshots").insert({
-        booking_item_id: bookingItem.id,
-        original_provider_id: rpcItem._provider_id as string,
-        snapshot_display_name: rpcItem._provider_name as string,
-        snapshot_avatar_url: rpcItem._provider_avatar_url as string | null,
-        snapshot_email: rpcItem._provider_email as string | null,
-        snapshot_phone: rpcItem._provider_phone as string | null,
-        snapshot_address_id: snapshotAddressId,
-      });
-    } catch (err) {
-      console.error("Failed to create provider snapshot for item:", bookingItem.id, err);
-    }
-  }
-
-  // 8c. Delivery snapshot (if delivery address)
-  if (input.delivery_address_id) {
-    try {
-      const { data: deliveryAddr } = await supabase
-        .from("addresses")
-        .select("*")
-        .eq("id", input.delivery_address_id)
-        .eq("profile_id", user.id)
-        .is("deleted_at", null)
-        .single();
-
-      if (deliveryAddr) {
-        const { data: snapAddr } = await supabase
-          .from("snapshot_addresses")
-          .insert({
-            original_address_id: deliveryAddr.id,
-            street_name: deliveryAddr.street_name,
-            street_number: deliveryAddr.street_number,
-            apartment_unit: deliveryAddr.apartment_unit,
-            city: deliveryAddr.city,
-            postal_code: deliveryAddr.postal_code,
-            country: deliveryAddr.country,
-            latitude: deliveryAddr.latitude,
-            longitude: deliveryAddr.longitude,
-            instructions: deliveryAddr.delivery_instructions,
-          })
-          .select("id")
-          .single();
-
-        if (snapAddr) {
-          await supabase.from("booking_delivery_snapshots").insert({
-            booking_id: newBookingId,
-            snapshot_address_id: snapAddr.id,
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Failed to create delivery snapshot:", err);
-    }
-  }
-
-  // 8d. Community snapshot
-  try {
-    const { data: community } = await supabase
-      .from("communities")
-      .select("community_name, community_description, community_image_url")
-      .eq("id", input.community_id)
-      .single();
-
-    if (community) {
-      await supabase.from("booking_community_snapshots").insert({
-        booking_id: newBookingId,
-        original_community_id: input.community_id,
-        snapshot_community_name: community.community_name,
-        snapshot_community_description: community.community_description,
-        snapshot_community_image_url: community.community_image_url,
-      });
-    }
-  } catch (err) {
-    console.error("Failed to create community snapshot:", err);
-  }
-
-  // Note: Status history (NULL → pending) and provider notification are now
-  // handled by the tr_booking_status_change trigger on INSERT.
-
-  // ============================================================================
-  // Step 9: Return booking
-  // ============================================================================
   return successResponse(
     {
       booking: {
@@ -467,6 +331,7 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
         currency_code: newBooking.currency_code,
         payment_method: newBooking.payment_method,
         created_at: newBooking.created_at,
+        conversation_id: conversation?.id ?? null,
       },
     },
     "Booking created successfully",
@@ -481,58 +346,41 @@ export const POST = withSecureAuth(async (user, request: NextRequest) => {
 // ============================================================================
 
 export const GET = withAuth(async (user, request: NextRequest) => {
-  const supabase = await createClient();
   const { searchParams } = new URL(request.url);
-  const role = searchParams.get("role"); // "customer" | "provider" | null (both)
+  const role = searchParams.get("role");
 
-  // Build query — select booking + first item snapshot for preview
-  let query = supabase
-    .from("bookings")
-    .select(`
-      id,
-      booking_number,
-      booking_status,
-      customer_id,
-      provider_id,
-      community_id,
-      total_amount,
-      currency_code,
-      payment_method,
-      created_at,
-      confirmed_at,
-      ready_at,
-      completed_at,
-      cancelled_at,
-      booking_items (
-        id,
-        snapshot_title,
-        snapshot_image_url,
-        quantity
-      ),
-      booking_community_snapshots (
-        snapshot_community_name
-      )
-    `)
-    .order("created_at", { ascending: false });
+  try {
+    const where: any = {};
 
-  // Filter by role
-  if (role === "customer") {
-    query = query.eq("customer_id", user.id);
-  } else if (role === "provider") {
-    query = query.eq("provider_id", user.id);
-  } else {
-    // Both — bookings where user is customer OR provider
-    query = query.or(`customer_id.eq.${user.id},provider_id.eq.${user.id}`);
-  }
+    if (role === "customer") {
+      where.customer_id = user.id;
+    } else if (role === "provider") {
+      where.provider_id = user.id;
+    } else {
+      where.OR = [
+        { customer_id: user.id },
+        { provider_id: user.id },
+      ];
+    }
 
-  const { data: bookings, error } = await query;
+    const bookings = await prisma.bookings.findMany({
+      where,
+      include: {
+        booking_items: {
+          select: { id: true, snapshot_title: true, snapshot_image_url: true, quantity: true },
+        },
+        booking_community_snapshots: {
+          select: { snapshot_community_name: true },
+        },
+      },
+      orderBy: { created_at: "desc" },
+    });
 
-  if (error) {
+    return successResponse({ bookings: bookings as any });
+  } catch (error) {
     console.error("Error fetching bookings:", error);
     return ApiErrors.serverError("Failed to fetch bookings");
   }
-
-  return successResponse({ bookings: bookings || [] });
 });
 
 export async function PUT() {

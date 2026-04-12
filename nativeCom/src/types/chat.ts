@@ -1,9 +1,13 @@
-import type { Database } from '@/types/supabase';
+// ============================================================================
+// Message Types
+// ============================================================================
 
-// Base types from Supabase schema
-export type Conversation = Database['public']['Tables']['conversations']['Row'];
-export type Message = Database['public']['Tables']['messages']['Row'];
-export type ConversationParticipant = Database['public']['Tables']['conversation_participants']['Row'];
+export type MessageType =
+  | 'text'
+  | 'booking_request'
+  | 'price_offer'
+  | 'offer_response'
+  | 'status_update';
 
 // Sender profile info joined onto messages
 export interface MessageSender {
@@ -14,8 +18,19 @@ export interface MessageSender {
   avatar_url: string | null;
 }
 
-// Message with sender profile (from Supabase join query)
-export interface ChatMessage extends Message {
+// Message with sender profile
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  content: string | null;
+  message_type: MessageType;
+  metadata: Record<string, unknown> | null;
+  reply_to_message_id: string | null;
+  has_attachments: boolean;
+  is_edited: boolean;
+  is_deleted: boolean;
+  created_at: string;
   sender: MessageSender;
 }
 

@@ -6,7 +6,7 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { updateMemberSchema } from "@/lib/validations/community";
 import type { CommunityMemberResponse } from "@/types/community";
 
@@ -21,35 +21,27 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID and Member ID are required");
   }
 
-  const supabase = await createClient();
-
-  // Check requester is admin/owner
-  const { data: requesterMembership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .in("member_role", ["owner", "admin"])
-    .single();
+  const requesterMembership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+      member_role: { in: ["owner", "admin"] },
+    },
+  });
 
   if (!requesterMembership) {
     return ApiErrors.forbidden("Only admins can manage members");
   }
 
-  // Fetch target member
-  const { data: targetMember, error: fetchError } = await supabase
-    .from("community_members")
-    .select("*")
-    .eq("id", memberId)
-    .eq("community_id", communityId)
-    .single();
+  const targetMember = await prisma.community_members.findFirst({
+    where: { id: memberId, community_id: communityId },
+  });
 
-  if (fetchError || !targetMember) {
+  if (!targetMember) {
     return ApiErrors.notFound("Member not found");
   }
 
-  // Can't modify the owner
   if (targetMember.member_role === "owner") {
     return ApiErrors.forbidden("Cannot modify the community owner");
   }
@@ -68,31 +60,27 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
 
   const updateData: Record<string, any> = { ...validation.data };
 
-  // If approving a pending member
   if (updateData.membership_status === "active" && targetMember.membership_status === "pending") {
-    updateData.membership_approved_at = new Date().toISOString();
+    updateData.membership_approved_at = new Date();
     updateData.approved_by_profile_id = user.id;
   }
 
-  // If removing a member
   if (updateData.membership_status === "removed") {
-    updateData.membership_removed_at = new Date().toISOString();
+    updateData.membership_removed_at = new Date();
     updateData.removed_by_profile_id = user.id;
   }
 
-  const { data: updated, error } = await supabase
-    .from("community_members")
-    .update(updateData)
-    .eq("id", memberId)
-    .select()
-    .single();
+  try {
+    const updated = await prisma.community_members.update({
+      where: { id: memberId },
+      data: updateData,
+    });
 
-  if (error || !updated) {
+    return successResponse<CommunityMemberResponse>({ member: updated as any });
+  } catch (error) {
     console.error("Error updating member:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<CommunityMemberResponse>({ member: updated });
 });
 
 /**
@@ -106,29 +94,23 @@ export const DELETE = withAuth(async (user, _request, params) => {
     return ApiErrors.badRequest("Community ID and Member ID are required");
   }
 
-  const supabase = await createClient();
-
-  // Check requester is admin/owner
-  const { data: requesterMembership } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .in("member_role", ["owner", "admin"])
-    .single();
+  const requesterMembership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+      member_role: { in: ["owner", "admin"] },
+    },
+  });
 
   if (!requesterMembership) {
     return ApiErrors.forbidden("Only admins can remove members");
   }
 
-  // Fetch target member
-  const { data: targetMember } = await supabase
-    .from("community_members")
-    .select("member_role")
-    .eq("id", memberId)
-    .eq("community_id", communityId)
-    .single();
+  const targetMember = await prisma.community_members.findFirst({
+    where: { id: memberId, community_id: communityId },
+    select: { member_role: true },
+  });
 
   if (!targetMember) {
     return ApiErrors.notFound("Member not found");
@@ -138,21 +120,21 @@ export const DELETE = withAuth(async (user, _request, params) => {
     return ApiErrors.forbidden("Cannot remove the community owner");
   }
 
-  const { error } = await supabase
-    .from("community_members")
-    .update({
-      membership_status: "removed",
-      membership_removed_at: new Date().toISOString(),
-      removed_by_profile_id: user.id,
-    })
-    .eq("id", memberId);
+  try {
+    await prisma.community_members.update({
+      where: { id: memberId },
+      data: {
+        membership_status: "removed",
+        membership_removed_at: new Date(),
+        removed_by_profile_id: user.id,
+      },
+    });
 
-  if (error) {
+    return successResponse({ message: "Member removed" });
+  } catch (error) {
     console.error("Error removing member:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ message: "Member removed" });
 });
 
 export async function GET() {

@@ -6,27 +6,23 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import {
   createOfferingSchema,
   offeringFilterSchema,
 } from "@/lib/validations/offering";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 
 /**
  * GET /api/communities/[communityId]/offerings
- * List community offerings — RLS: only active community members can see
+ * List community offerings
  */
-export const GET = withAuth(async (user, request: NextRequest, params) => {
+export const GET = withAuth(async (_user, request: NextRequest, params) => {
   const communityId = params?.communityId;
   if (!communityId) {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -36,29 +32,47 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const { category, limit, after } = validation.data;
+  const { category, transaction_type, limit, after } = validation.data;
 
-  let query = supabase
-    .from("offerings")
-    .select("*, profiles!provider_id(id, first_name, last_name, avatar_url)")
-    .eq("community_id", communityId)
-    .is("deleted_at", null)
-    .eq("status", "active");
+  try {
+    const where: any = {
+      community_id: communityId,
+      deleted_at: null,
+      status: "active",
+    };
 
-  if (category) {
-    query = query.eq("category", category);
-  }
+    if (category) where.category = category;
+    if (transaction_type) where.transaction_type = transaction_type;
 
-  query = applyCursorPagination(query, { limit, after });
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  const { data: offerings, error } = await query;
+    const offerings = await prisma.offerings.findMany({
+      where,
+      include: {
+        profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+      },
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  if (error) {
+    const shaped = offerings.map((o) => ({
+      ...o,
+      created_at: o.created_at?.toISOString() ?? null,
+    }));
+
+    return successResponse(buildPaginatedResponse(shaped as any, limit));
+  } catch (error) {
     console.error("Error fetching offerings:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(offerings || [], limit));
 });
 
 /**
@@ -71,16 +85,14 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check membership + posting permission
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("id, can_post_offerings, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { id: true, can_post_offerings: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You must be an active member of this community");
@@ -90,7 +102,6 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("You do not have permission to post offerings in this community");
   }
 
-  // Parse and validate body
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -103,27 +114,22 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const input = validation.data;
+  try {
+    const offering = await prisma.offerings.create({
+      data: {
+        ...validation.data,
+        community_id: communityId,
+        provider_id: user.id,
+        status: "active",
+        version: 1,
+      },
+    });
 
-  // Insert offering
-  const { data: offering, error: createError } = await supabase
-    .from("offerings")
-    .insert({
-      ...input,
-      community_id: communityId,
-      provider_id: user.id,
-      status: "active",
-      version: 1,
-    })
-    .select("*")
-    .single();
-
-  if (createError || !offering) {
-    console.error("Failed to create offering:", createError);
+    return successResponse({ offering: offering as any }, undefined, 201);
+  } catch (error) {
+    console.error("Failed to create offering:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ offering }, undefined, 201);
 });
 
 export async function PUT() {

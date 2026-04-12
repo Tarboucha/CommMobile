@@ -6,6 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import Toast from 'react-native-toast-message';
 import 'react-native-reanimated';
 
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from '@/lib/query-client';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { SocketProvider } from '@/contexts/socket-context';
 import { DrawerProvider } from '@/contexts/drawer-context';
@@ -60,13 +62,15 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <ThemeProvider>
-      <SocketProvider>
-        <DrawerProvider>
-          <ExpoPushTokenManager />
-          <RootNavigator />
-          <AppDrawer />
-        </DrawerProvider>
-      </SocketProvider>
+      <QueryClientProvider client={queryClient}>
+        <SocketProvider>
+          <DrawerProvider>
+            <ExpoPushTokenManager />
+            <RootNavigator />
+            <AppDrawer />
+          </DrawerProvider>
+        </SocketProvider>
+      </QueryClientProvider>
     </ThemeProvider>
   );
 }

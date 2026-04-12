@@ -2,14 +2,14 @@
 // Offering Types
 // ============================================================================
 
-export type OfferingCategory = 'product' | 'service' | 'share' | 'event';
+export type OfferingCategory = 'product' | 'service' | 'event';
 export type FulfillmentMethod = 'pickup' | 'delivery' | 'online' | 'at_location';
 export type PriceType = 'fixed' | 'negotiable' | 'free' | 'donation';
+export type TransactionType = 'purchase' | 'booking' | 'loan' | 'free';
 
 export const OFFERING_CATEGORIES: { value: OfferingCategory; label: string }[] = [
   { value: 'product', label: 'Product' },
   { value: 'service', label: 'Service' },
-  { value: 'share', label: 'Share' },
   { value: 'event', label: 'Event' },
 ];
 
@@ -40,6 +40,7 @@ export interface Offering {
   provider_id: string;
   created_by_profile_id: string;
   category: OfferingCategory;
+  transaction_type: TransactionType;
   title: string;
   description: string | null;
   price_type: PriceType;
@@ -50,6 +51,8 @@ export interface Offering {
   is_delivery_available: boolean;
   delivery_fee_amount: number | null;
   delivery_radius_km: number | null;
+  requires_deposit: boolean;
+  deposit_amount: number | null;
   image_url: string | null;
   is_featured: boolean;
   status: string;
@@ -74,6 +77,9 @@ export interface AvailabilitySchedule {
   slot_label: string | null;
   slot_unit: string | null;
   is_active: boolean;
+  loan_duration_days: number;
+  loan_max_duration_days: number | null;
+  slot_duration_minutes: number | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -82,6 +88,7 @@ export interface CreateOfferingInput {
   title: string;
   description?: string;
   category: OfferingCategory;
+  transaction_type?: TransactionType;
   price_type?: PriceType;
   price_amount?: number;
   currency_code?: string;
@@ -90,16 +97,21 @@ export interface CreateOfferingInput {
   is_delivery_available?: boolean;
   delivery_fee_amount?: number;
   delivery_radius_km?: number;
+  requires_deposit?: boolean;
+  deposit_amount?: number | null;
 }
 
 export interface UpdateOfferingInput {
   title?: string;
   description?: string | null;
   category?: OfferingCategory;
+  transaction_type?: TransactionType;
   price_type?: PriceType;
   price_amount?: number;
   fulfillment_method?: FulfillmentMethod;
-  status?: 'active' | 'inactive';
+  status?: 'active' | 'paused' | 'deleted';
+  requires_deposit?: boolean;
+  deposit_amount?: number | null;
 }
 
 export interface CreateScheduleInput {
@@ -111,6 +123,7 @@ export interface CreateScheduleInput {
   slots_available: number;
   slot_label?: string;
   is_active?: boolean;
+  slot_duration_minutes?: number | null;
 }
 
 export interface UpdateScheduleInput {
@@ -122,6 +135,26 @@ export interface UpdateScheduleInput {
   slots_available?: number;
   slot_label?: string | null;
   is_active?: boolean;
+  slot_duration_minutes?: number | null;
+}
+
+// ============================================================================
+// Time Slot Types (for time-slotted service bookings)
+// ============================================================================
+
+export interface TimeSlot {
+  start_time: string;
+  end_time: string;
+  slots_available: number;
+  slots_booked: number;
+  is_available: boolean;
+}
+
+export interface TimeSlotResponse {
+  schedule_id: string;
+  date: string;
+  slot_duration_minutes: number | null;
+  slots: TimeSlot[];
 }
 
 // ============================================================================

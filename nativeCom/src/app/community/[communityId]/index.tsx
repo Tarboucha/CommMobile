@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, ActivityIndicator, Alert, Pressable, AppState } from 'react-native';
 import { useLocalSearchParams, router, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,12 +8,12 @@ import { useAuthStore } from '@/lib/stores/auth-store';
 import { useCartStore } from '@/lib/stores/cart-store';
 import { useTheme } from '@/hooks/use-theme';
 import { NAV_COLORS } from '@/lib/constants/nav-colors';
-import { getCommunity, getCommunityMembers, joinCommunity, leaveCommunity } from '@/lib/api/communities';
+import { useCommunityDetail, useCommunityMembers } from '@/hooks/queries/use-communities';
+import { useJoinCommunity, useLeaveCommunity } from '@/hooks/queries/use-community-mutations';
 import { ChatTab } from '@/components/pages/community/chat-tab';
 import { BoardTab } from '@/components/pages/community/board-tab';
 import { InfoTab } from '@/components/pages/community/info-tab';
 import { InviteModal } from '@/components/pages/community/invite-modal';
-import type { Community, CommunityMember } from '@/types/community';
 
 export default function CommunityDetailScreen() {
   const { communityId } = useLocalSearchParams<{ communityId: string }>();
@@ -39,15 +39,23 @@ export default function CommunityDetailScreen() {
     return () => sub.remove();
   }, []);
 
-  const [community, setCommunity] = useState<Community | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const { data: community, isLoading: isCommunityLoading } = useCommunityDetail(communityId);
+  const { data: membersData } = useCommunityMembers(communityId, 100);
+
+  const joinMutation = useJoinCommunity(communityId!);
+  const leaveMutation = useLeaveCommunity(communityId!);
+
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [isMember, setIsMember] = useState(false);
-  const [currentMembership, setCurrentMembership] = useState<CommunityMember | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
 
+  const currentMembership = useMemo(() => {
+    if (!user || !membersData) return null;
+    return membersData.data.find((m) => m.profile_id === user.id) ?? null;
+  }, [user, membersData]);
+
+  const isMember = !!currentMembership || (!!user && !!community && community.created_by_profile_id === user.id);
   const isOwnerOrAdmin = currentMembership?.member_role === 'owner' || currentMembership?.member_role === 'admin';
+  const isLoading = isCommunityLoading;
 
   const cartItemCount = useCartStore((s) =>
     s.communityId === communityId
@@ -55,79 +63,43 @@ export default function CommunityDetailScreen() {
       : 0
   );
 
-  const loadCommunity = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const data = await getCommunity(communityId!);
-      setCommunity(data);
-
-      // Check membership
-      if (user) {
-        try {
-          const membersResult = await getCommunityMembers(communityId!, 100);
-          const myMembership = membersResult.data.find((m) => m.profile_id === user.id);
-          setIsMember(!!myMembership);
-          setCurrentMembership(myMembership ?? null);
-        } catch {
-          // Fallback to creator check if members fetch fails
-          setIsMember(data.created_by_profile_id === user.id);
-          setCurrentMembership(null);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load community:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [communityId, user]);
-
-  useEffect(() => {
-    if (communityId) {
-      loadCommunity();
-    }
-  }, [communityId, loadCommunity]);
-
-  async function handleJoin() {
+  function handleJoin() {
     if (!communityId) return;
-    try {
-      setActionLoading(true);
-      const member = await joinCommunity(communityId);
-      if (member.membership_status === 'pending') {
-        Alert.alert('Request Sent', 'Your join request has been submitted.');
-      } else {
-        Alert.alert('Joined', 'You are now a member of this community.');
-      }
-      await loadCommunity();
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to join community.');
-    } finally {
-      setActionLoading(false);
-    }
+    joinMutation.mutate(undefined, {
+      onSuccess: (member) => {
+        if (member.membership_status === 'pending') {
+          Alert.alert('Request Sent', 'Your join request has been submitted.');
+        } else {
+          Alert.alert('Joined', 'You are now a member of this community.');
+        }
+      },
+      onError: (err: any) => {
+        Alert.alert('Error', err.message || 'Failed to join community.');
+      },
+    });
   }
 
-  async function handleLeave() {
+  function handleLeave() {
     if (!communityId) return;
     Alert.alert('Leave Community', 'Are you sure you want to leave?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Leave',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            setActionLoading(true);
-            // Clear cart when leaving the community
-            useCartStore.getState().clearCart();
-            await leaveCommunity(communityId);
-            router.back();
-          } catch (err: any) {
-            Alert.alert('Error', err.message || 'Failed to leave community.');
-          } finally {
-            setActionLoading(false);
-          }
+        onPress: () => {
+          useCartStore.getState().clearCart();
+          leaveMutation.mutate(undefined, {
+            onSuccess: () => router.back(),
+            onError: (err: any) => {
+              Alert.alert('Error', err.message || 'Failed to leave community.');
+            },
+          });
         },
       },
     ]);
   }
+
+  const actionLoading = joinMutation.isPending || leaveMutation.isPending;
 
   if (isLoading) {
     return (

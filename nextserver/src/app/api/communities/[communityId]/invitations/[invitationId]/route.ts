@@ -6,12 +6,9 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { respondInvitationSchema } from "@/lib/validations/community";
-import type {
-  CommunityInvitationResponse,
-  CommunityMemberResponse,
-} from "@/types/community";
+import type { CommunityInvitationResponse } from "@/types/community";
 
 /**
  * PATCH /api/communities/[communityId]/invitations/[invitationId]
@@ -37,21 +34,15 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
   }
 
   const { action } = validation.data;
-  const supabase = await createClient();
 
-  // Fetch invitation
-  const { data: invitation, error: fetchError } = await supabase
-    .from("community_invitations")
-    .select("*")
-    .eq("id", invitationId)
-    .eq("community_id", communityId)
-    .single();
+  const invitation = await prisma.community_invitations.findFirst({
+    where: { id: invitationId, community_id: communityId },
+  });
 
-  if (fetchError || !invitation) {
+  if (!invitation) {
     return ApiErrors.notFound("Invitation not found");
   }
 
-  // Verify invitee identity
   const isInvitee =
     invitation.invited_profile_id === user.id ||
     (invitation.invited_email &&
@@ -61,14 +52,13 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("This invitation is not for you");
   }
 
-  // Check invitation is still valid
   if (invitation.invitation_status !== "pending") {
     return ApiErrors.conflict(
       `Invitation has already been ${invitation.invitation_status}`
     );
   }
 
-  if (new Date(invitation.expires_at) < new Date()) {
+  if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
     return ApiErrors.conflict("Invitation has expired");
   }
 
@@ -79,112 +69,99 @@ export const PATCH = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.conflict("Invitation has reached its maximum uses");
   }
 
-  if (action === "decline") {
-    const { data: updated, error } = await supabase
-      .from("community_invitations")
-      .update({
-        invitation_status: "declined",
-        declined_at: new Date().toISOString(),
-      })
-      .eq("id", invitationId)
-      .select()
-      .single();
+  try {
+    if (action === "decline") {
+      const updated = await prisma.community_invitations.update({
+        where: { id: invitationId },
+        data: {
+          invitation_status: "declined",
+          declined_at: new Date(),
+        },
+      });
 
-    if (error || !updated) {
-      console.error("Error declining invitation:", error);
-      return ApiErrors.serverError();
+      return successResponse<CommunityInvitationResponse>({
+        invitation: updated as any,
+      });
     }
 
-    return successResponse<CommunityInvitationResponse>({
-      invitation: updated,
+    // Accept: check capacity
+    const community = await prisma.communities.findUnique({
+      where: { id: communityId },
+      select: { current_members_count: true, max_members: true },
     });
-  }
 
-  // Accept: check capacity
-  const { data: community } = await supabase
-    .from("communities")
-    .select("current_members_count, max_members")
-    .eq("id", communityId)
-    .single();
+    if (
+      community?.max_members &&
+      (community.current_members_count || 0) >= community.max_members
+    ) {
+      return ApiErrors.conflict(
+        "Community has reached its maximum member capacity"
+      );
+    }
 
-  if (
-    community?.max_members &&
-    (community.current_members_count || 0) >= community.max_members
-  ) {
-    return ApiErrors.conflict(
-      "Community has reached its maximum member capacity"
-    );
-  }
+    const existingMember = await prisma.community_members.findFirst({
+      where: { community_id: communityId, profile_id: user.id },
+      select: { id: true, membership_status: true },
+    });
 
-  // Check if user is already a member
-  const { data: existingMember } = await supabase
-    .from("community_members")
-    .select("id, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .single();
+    if (existingMember?.membership_status === "active") {
+      const updated = await prisma.community_invitations.update({
+        where: { id: invitationId },
+        data: {
+          invitation_status: "accepted",
+          accepted_at: new Date(),
+          current_uses: (invitation.current_uses || 0) + 1,
+        },
+      });
 
-  if (existingMember?.membership_status === "active") {
-    // Already a member — just mark invitation as accepted
-    const { data: updated } = await supabase
-      .from("community_invitations")
-      .update({
+      return successResponse<CommunityInvitationResponse>({
+        invitation: updated as any,
+      });
+    }
+
+    const memberData = {
+      community_id: communityId,
+      profile_id: user.id,
+      join_method: "direct_invite" as const,
+      membership_status: "active" as const,
+      invited_by_profile_id: invitation.invited_by_profile_id,
+      membership_approved_at: new Date(),
+      removal_reason: null,
+      removed_by_profile_id: null,
+      membership_removed_at: null,
+    };
+
+    if (
+      existingMember &&
+      (existingMember.membership_status === "left" ||
+        existingMember.membership_status === "removed")
+    ) {
+      await prisma.community_members.update({
+        where: { id: existingMember.id },
+        data: memberData,
+      });
+    } else {
+      await prisma.community_members.create({
+        data: memberData,
+      });
+    }
+
+    const updatedInvitation = await prisma.community_invitations.update({
+      where: { id: invitationId },
+      data: {
         invitation_status: "accepted",
-        accepted_at: new Date().toISOString(),
+        accepted_at: new Date(),
         current_uses: (invitation.current_uses || 0) + 1,
-      })
-      .eq("id", invitationId)
-      .select()
-      .single();
+      },
+    });
 
     return successResponse<CommunityInvitationResponse>({
-      invitation: updated!,
+      invitation: updatedInvitation as any,
     });
+  } catch (error) {
+    console.error("Error responding to invitation:", error);
+    return ApiErrors.serverError();
   }
-
-  // Create or re-activate membership
-  const memberData = {
-    community_id: communityId,
-    profile_id: user.id,
-    join_method: "direct_invite" as const,
-    membership_status: "active" as const,
-    invited_by_profile_id: invitation.invited_by_profile_id,
-    membership_approved_at: new Date().toISOString(),
-    removal_reason: null,
-    removed_by_profile_id: null,
-    membership_removed_at: null,
-  };
-
-  if (
-    existingMember &&
-    (existingMember.membership_status === "left" ||
-      existingMember.membership_status === "removed")
-  ) {
-    // Re-activate
-    await supabase
-      .from("community_members")
-      .update(memberData)
-      .eq("id", existingMember.id);
-  } else {
-    // New member
-    await supabase.from("community_members").insert(memberData);
-  }
-
-  // Update invitation
-  const { data: updatedInvitation } = await supabase
-    .from("community_invitations")
-    .update({
-      invitation_status: "accepted",
-      accepted_at: new Date().toISOString(),
-      current_uses: (invitation.current_uses || 0) + 1,
-    })
-    .eq("id", invitationId)
-    .select()
-    .single();
-
-  return successResponse<CommunityInvitationResponse>({
-    invitation: updatedInvitation!,
-  });
 });
 
 export async function GET() {

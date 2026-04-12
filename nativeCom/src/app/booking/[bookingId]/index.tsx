@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   View,
   ScrollView,
@@ -12,9 +12,13 @@ import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { getBooking, updateBookingStatus } from '@/lib/api/bookings';
+import { useBookingDetail } from '@/hooks/queries/use-bookings';
+import {
+  useReturnLoanItem,
+  useUpdateBookingStatus,
+} from '@/hooks/queries/use-booking-mutations';
 import { handleError } from '@/lib/services/error-service';
-import type { BookingDetail, BookingStatus } from '@/types/booking';
+import type { BookingItemDetail, BookingStatus } from '@/types/booking';
 
 // ============================================================================
 // Helpers
@@ -42,9 +46,18 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   completed: { label: 'Completed', color: '#059669', bg: 'bg-emerald-100', icon: 'trophy-outline' },
   cancelled: { label: 'Cancelled', color: '#EF4444', bg: 'bg-red-100', icon: 'close-circle-outline' },
   refunded: { label: 'Refunded', color: '#6B7280', bg: 'bg-gray-100', icon: 'return-down-back-outline' },
+  loaned_out: { label: 'On Loan', color: '#8B5CF6', bg: 'bg-purple-100', icon: 'arrow-forward-circle-outline' },
+  returned: { label: 'Returned', color: '#059669', bg: 'bg-emerald-100', icon: 'checkmark-done-circle-outline' },
+  overdue: { label: 'Overdue', color: '#DC2626', bg: 'bg-red-100', icon: 'alert-circle-outline' },
 };
 
-const STATUS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'ready', 'completed'];
+const DEFAULT_STATUS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'ready', 'completed'];
+const LOAN_STATUS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'loaned_out', 'returned', 'completed'];
+
+function formatLoanDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  return new Date(value).toLocaleDateString();
+}
 
 // ============================================================================
 // Component
@@ -54,11 +67,10 @@ export default function BookingDetailScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const userId = useAuthStore((s) => s.user?.id ?? null);
 
-  const [booking, setBooking] = useState<BookingDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { data: booking, isLoading, isFetching, error, refetch } = useBookingDetail(bookingId);
+  const statusMutation = useUpdateBookingStatus(bookingId!);
+  const returnMutation = useReturnLoanItem(bookingId!);
+  const isUpdating = statusMutation.isPending || returnMutation.isPending;
 
   // Determine role
   const isCustomer = booking?.customer_id === userId;
@@ -72,54 +84,32 @@ export default function BookingDetailScreen() {
     [booking]
   );
 
-  // Fetch booking
-  const fetchBooking = useCallback(async (silent = false) => {
-    if (!bookingId) return;
-    try {
-      if (!silent) setIsLoading(true);
-      setError(null);
-      const data = await getBooking(bookingId);
-      setBooking(data);
-    } catch (err) {
-      console.error('Failed to load booking:', err);
-      setError('Failed to load booking details');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [bookingId]);
+  const isLoanBooking = useMemo(
+    () => !!booking?.booking_items?.some((item) => item.is_loan),
+    [booking]
+  );
 
-  useEffect(() => { fetchBooking(); }, [fetchBooking]);
-
-  const onRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    fetchBooking(true);
-  }, [fetchBooking]);
+  const statusSteps = isLoanBooking ? LOAN_STATUS_STEPS : DEFAULT_STATUS_STEPS;
 
   // Status update handler
-  const handleStatusUpdate = useCallback(async (
+  const handleStatusUpdate = useCallback((
     newStatus: BookingStatus,
     cancellationReason?: string
   ) => {
     if (!bookingId || isUpdating) return;
-    setIsUpdating(true);
-    try {
-      await updateBookingStatus(bookingId, {
-        booking_status: newStatus,
-        cancellation_reason: cancellationReason,
-      });
-      // Re-fetch full detail with snapshots
-      await fetchBooking(true);
-    } catch (err) {
-      handleError(err, {
-        severity: 'alert',
-        screen: 'booking-detail',
-        userMessage: 'Failed to update booking status.',
-      });
-    } finally {
-      setIsUpdating(false);
-    }
-  }, [bookingId, isUpdating, fetchBooking]);
+    statusMutation.mutate(
+      { booking_status: newStatus, cancellation_reason: cancellationReason },
+      {
+        onError: (err) => {
+          handleError(err, {
+            severity: 'alert',
+            screen: 'booking-detail',
+            userMessage: 'Failed to update booking status.',
+          });
+        },
+      }
+    );
+  }, [bookingId, isUpdating, statusMutation]);
 
   // Cancel with reason prompt
   const handleCancel = useCallback(() => {
@@ -150,6 +140,33 @@ export default function BookingDetailScreen() {
           ]
         );
   }, [handleStatusUpdate]);
+
+  // Provider: mark a loan item as returned
+  const handleReturnItem = useCallback((itemId: string) => {
+    if (!bookingId || isUpdating) return;
+    Alert.alert(
+      'Mark as Returned',
+      'Confirm the customer has returned this item. This will release the reserved slots.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark Returned',
+          style: 'default',
+          onPress: () => {
+            returnMutation.mutate(itemId, {
+              onError: (err) => {
+                handleError(err, {
+                  severity: 'alert',
+                  screen: 'booking-detail',
+                  userMessage: 'Failed to mark item as returned.',
+                });
+              },
+            });
+          },
+        },
+      ]
+    );
+  }, [bookingId, isUpdating, returnMutation]);
 
   // Provider: refuse with reason
   const handleRefuse = useCallback(() => {
@@ -194,9 +211,9 @@ export default function BookingDetailScreen() {
         <View className="flex-1 bg-background justify-center items-center p-6 gap-4">
           <Ionicons name="alert-circle-outline" size={48} color="#9CA3AF" />
           <Text className="text-base text-muted-foreground text-center">
-            {error || 'Booking not found'}
+            {error ? 'Failed to load booking details' : 'Booking not found'}
           </Text>
-          <Pressable className="px-6 py-3 rounded-lg bg-primary" onPress={() => fetchBooking()}>
+          <Pressable className="px-6 py-3 rounded-lg bg-primary" onPress={() => refetch()}>
             <Text className="text-base font-semibold text-primary-foreground">Retry</Text>
           </Pressable>
         </View>
@@ -204,7 +221,11 @@ export default function BookingDetailScreen() {
     );
   }
 
-  const isFinal = booking.booking_status === 'completed' || booking.booking_status === 'cancelled' || booking.booking_status === 'refunded';
+  const isFinal =
+    booking.booking_status === 'completed' ||
+    booking.booking_status === 'cancelled' ||
+    booking.booking_status === 'refunded' ||
+    booking.booking_status === 'returned';
 
   return (
     <>
@@ -235,7 +256,7 @@ export default function BookingDetailScreen() {
           className="flex-1"
           contentContainerClassName="p-4 pb-40 gap-5"
           refreshControl={
-            <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+            <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => refetch()} />
           }
         >
           {/* Status Header */}
@@ -253,60 +274,20 @@ export default function BookingDetailScreen() {
 
           {/* Status Timeline */}
           {!isFinal || booking.booking_status === 'completed' ? (
-            <StatusTimeline currentStatus={booking.booking_status} />
+            <StatusTimeline currentStatus={booking.booking_status} steps={statusSteps} />
           ) : null}
 
           {/* Items */}
           <Section title="Items">
             {booking.booking_items.map((item) => (
-              <View key={item.id} className="flex-row p-3 rounded-lg bg-card gap-3">
-                {item.snapshot_image_url ? (
-                  <Image
-                    source={{ uri: item.snapshot_image_url }}
-                    className="w-14 h-14 rounded-lg"
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View className="w-14 h-14 rounded-lg bg-muted items-center justify-center">
-                    <Ionicons name="image-outline" size={24} color="#9CA3AF" />
-                  </View>
-                )}
-                <View className="flex-1 gap-1">
-                  <Text className="text-base font-semibold" numberOfLines={2}>
-                    {item.snapshot_title}
-                  </Text>
-                  <View className="flex-row items-center gap-2">
-                    <Text className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-muted">
-                      {fulfillmentLabel(item.fulfillment_method)}
-                    </Text>
-                    {item.instance_date && (
-                      <Text className="text-xs text-muted-foreground">
-                        {new Date(item.instance_date).toLocaleDateString()}
-                      </Text>
-                    )}
-                  </View>
-                  {item.special_instructions && (
-                    <Text className="text-xs text-muted-foreground italic" numberOfLines={2}>
-                      "{item.special_instructions}"
-                    </Text>
-                  )}
-                </View>
-                <View className="items-end gap-1">
-                  <Text className="text-base font-bold">
-                    {formatCurrency(item.total_amount, item.currency_code)}
-                  </Text>
-                  {item.quantity > 1 && (
-                    <Text className="text-xs text-muted-foreground">
-                      {item.quantity} x {formatCurrency(item.unit_price_amount, item.currency_code)}
-                    </Text>
-                  )}
-                  {item.delivery_fee_amount > 0 && (
-                    <Text className="text-xs text-muted-foreground">
-                      +{formatCurrency(item.delivery_fee_amount, item.currency_code)} delivery
-                    </Text>
-                  )}
-                </View>
-              </View>
+              <LoanAwareItemCard
+                key={item.id}
+                item={item}
+                bookingStatus={booking.booking_status}
+                isProvider={!!isProvider}
+                isUpdating={isUpdating}
+                onReturn={handleReturnItem}
+              />
             ))}
           </Section>
 
@@ -430,6 +411,18 @@ export default function BookingDetailScreen() {
                   {formatCurrency(booking.total_amount, booking.currency_code)}
                 </Text>
               </View>
+              {booking.deposit_total > 0 && (
+                <View className="border-t border-border pt-2 mt-1 gap-1">
+                  <Row
+                    label="Deposit (refundable)"
+                    value={formatCurrency(booking.deposit_total, booking.currency_code)}
+                  />
+                  <Row
+                    label="Deposit Status"
+                    value={depositStatusLabel(booking.deposit_status)}
+                  />
+                </View>
+              )}
             </View>
           </Section>
 
@@ -481,12 +474,14 @@ export default function BookingDetailScreen() {
             status={booking.booking_status}
             isProvider={!!isProvider}
             isCustomer={!!isCustomer}
+            isLoan={isLoanBooking}
             isUpdating={isUpdating}
             onAccept={() => handleStatusUpdate('confirmed')}
             onRefuse={handleRefuse}
             onStart={() => handleStatusUpdate('in_progress')}
             onMarkReady={() => handleStatusUpdate('ready')}
             onComplete={() => handleStatusUpdate('completed')}
+            onMarkLoanedOut={() => handleStatusUpdate('loaned_out')}
             onCancel={handleCancel}
           />
         )}
@@ -517,12 +512,18 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatusTimeline({ currentStatus }: { currentStatus: BookingStatus }) {
-  const currentIndex = STATUS_STEPS.indexOf(currentStatus);
+function StatusTimeline({
+  currentStatus,
+  steps,
+}: {
+  currentStatus: BookingStatus;
+  steps: BookingStatus[];
+}) {
+  const currentIndex = steps.indexOf(currentStatus);
 
   return (
     <View className="flex-row items-center justify-between px-2">
-      {STATUS_STEPS.map((step, idx) => {
+      {steps.map((step, idx) => {
         const config = STATUS_CONFIG[step];
         const isActive = idx <= currentIndex;
         const isCurrent = step === currentStatus;
@@ -574,23 +575,27 @@ function ActionBar({
   status,
   isProvider,
   isCustomer,
+  isLoan,
   isUpdating,
   onAccept,
   onRefuse,
   onStart,
   onMarkReady,
   onComplete,
+  onMarkLoanedOut,
   onCancel,
 }: {
   status: BookingStatus;
   isProvider: boolean;
   isCustomer: boolean;
+  isLoan: boolean;
   isUpdating: boolean;
   onAccept: () => void;
   onRefuse: () => void;
   onStart: () => void;
   onMarkReady: () => void;
   onComplete: () => void;
+  onMarkLoanedOut: () => void;
   onCancel: () => void;
 }) {
   const buttons: Array<{
@@ -609,10 +614,17 @@ function ActionBar({
         );
         break;
       case 'confirmed':
-        buttons.push(
-          { label: 'Start', onPress: onStart, variant: 'primary', icon: 'play-circle' },
-          { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
-        );
+        if (isLoan) {
+          buttons.push(
+            { label: 'Mark Loaned Out', onPress: onMarkLoanedOut, variant: 'primary', icon: 'arrow-forward-circle' },
+            { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
+          );
+        } else {
+          buttons.push(
+            { label: 'Start', onPress: onStart, variant: 'primary', icon: 'play-circle' },
+            { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
+          );
+        }
         break;
       case 'in_progress':
         buttons.push(
@@ -624,6 +636,9 @@ function ActionBar({
         buttons.push(
           { label: 'Complete', onPress: onComplete, variant: 'primary', icon: 'trophy' },
         );
+        break;
+      case 'loaned_out':
+        // Individual return buttons live on the item cards (supports per-item returns)
         break;
     }
   }
@@ -675,6 +690,142 @@ function ActionBar({
           )}
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+function depositStatusLabel(value: string): string {
+  switch (value) {
+    case 'none': return 'None';
+    case 'pending': return 'Pending';
+    case 'held': return 'Held';
+    case 'refunded': return 'Refunded';
+    case 'forfeited': return 'Forfeited';
+    default: return value;
+  }
+}
+
+function LoanAwareItemCard({
+  item,
+  bookingStatus,
+  isProvider,
+  isUpdating,
+  onReturn,
+}: {
+  item: BookingItemDetail;
+  bookingStatus: BookingStatus;
+  isProvider: boolean;
+  isUpdating: boolean;
+  onReturn: (itemId: string) => void;
+}) {
+  const canReturn =
+    isProvider &&
+    item.is_loan &&
+    !item.loan_returned_at &&
+    (bookingStatus === 'loaned_out' || bookingStatus === 'overdue');
+
+  return (
+    <View className="p-3 rounded-lg bg-card gap-3">
+      <View className="flex-row gap-3">
+        {item.snapshot_image_url ? (
+          <Image
+            source={{ uri: item.snapshot_image_url }}
+            className="w-14 h-14 rounded-lg"
+            resizeMode="cover"
+          />
+        ) : (
+          <View className="w-14 h-14 rounded-lg bg-muted items-center justify-center">
+            <Ionicons name="image-outline" size={24} color="#9CA3AF" />
+          </View>
+        )}
+        <View className="flex-1 gap-1">
+          <Text className="text-base font-semibold" numberOfLines={2}>
+            {item.snapshot_title}
+          </Text>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-muted">
+              {fulfillmentLabel(item.fulfillment_method)}
+            </Text>
+            {!item.is_loan && item.instance_date && (
+              <Text className="text-xs text-muted-foreground">
+                {new Date(item.instance_date).toLocaleDateString()}
+              </Text>
+            )}
+            {item.instance_start_time && item.instance_end_time && (
+              <Text className="text-xs text-muted-foreground px-2 py-0.5 rounded bg-muted">
+                {item.instance_start_time.slice(0, 5)} – {item.instance_end_time.slice(0, 5)}
+              </Text>
+            )}
+          </View>
+          {item.special_instructions && (
+            <Text className="text-xs text-muted-foreground italic" numberOfLines={2}>
+              "{item.special_instructions}"
+            </Text>
+          )}
+        </View>
+        <View className="items-end gap-1">
+          <Text className="text-base font-bold">
+            {formatCurrency(item.total_amount, item.currency_code)}
+          </Text>
+          {item.quantity > 1 && (
+            <Text className="text-xs text-muted-foreground">
+              {item.quantity} x {formatCurrency(item.unit_price_amount, item.currency_code)}
+            </Text>
+          )}
+          {item.delivery_fee_amount > 0 && (
+            <Text className="text-xs text-muted-foreground">
+              +{formatCurrency(item.delivery_fee_amount, item.currency_code)} delivery
+            </Text>
+          )}
+        </View>
+      </View>
+
+      {item.is_loan && (
+        <View className="border-t border-border pt-2 gap-1">
+          <View className="flex-row items-center gap-2">
+            <Ionicons name="calendar-outline" size={14} color="#6B7280" />
+            <Text className="text-xs text-muted-foreground">
+              Loan period: {formatLoanDate(item.loan_start_date)} → {formatLoanDate(item.loan_due_date)}
+            </Text>
+          </View>
+          {item.deposit_amount != null && item.deposit_amount > 0 && (
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="shield-checkmark-outline" size={14} color="#6B7280" />
+              <Text className="text-xs text-muted-foreground">
+                Deposit: {formatCurrency(item.deposit_amount, item.currency_code)}
+              </Text>
+            </View>
+          )}
+          {item.loan_returned_at ? (
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="checkmark-done-circle-outline" size={14} color="#059669" />
+              <Text className="text-xs font-medium" style={{ color: '#059669' }}>
+                Returned on {new Date(item.loan_returned_at).toLocaleString()}
+              </Text>
+            </View>
+          ) : (
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="time-outline" size={14} color="#8B5CF6" />
+              <Text className="text-xs font-medium" style={{ color: '#8B5CF6' }}>
+                Not yet returned
+              </Text>
+            </View>
+          )}
+
+          {canReturn && (
+            <Pressable
+              className={`mt-2 py-2.5 rounded-lg bg-primary flex-row items-center justify-center gap-2 ${isUpdating ? 'opacity-50' : ''}`}
+              onPress={() => onReturn(item.id)}
+              disabled={isUpdating}
+            >
+              <Ionicons name="return-down-back-outline" size={18} color="#FFFFFF" />
+              <Text className="text-sm font-semibold text-primary-foreground">
+                Mark as Returned
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </View>
   );
 }

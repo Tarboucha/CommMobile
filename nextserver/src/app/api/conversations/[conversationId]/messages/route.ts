@@ -6,50 +6,37 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { sendMessageSchema, messageQuerySchema } from "@/lib/validations/message";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 
-/**
- * Verify the user is an active participant in the conversation.
- * Returns true if participant, false otherwise.
- */
 async function isActiveParticipant(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   conversationId: string,
   profileId: string
 ): Promise<boolean> {
-  const { data } = await supabase
-    .from("conversation_participants")
-    .select("profile_id")
-    .eq("conversation_id", conversationId)
-    .eq("profile_id", profileId)
-    .is("left_at", null)
-    .is("removed_at", null)
-    .maybeSingle();
-
-  return !!data;
+  const participant = await prisma.conversation_participants.findFirst({
+    where: {
+      conversation_id: conversationId,
+      profile_id: profileId,
+      left_at: null,
+      removed_at: null,
+    },
+  });
+  return !!participant;
 }
 
 /**
  * GET /api/conversations/:conversationId/messages
  * Paginated message history for any conversation type (booking or direct).
- * Requires participant membership.
  */
 export const GET = withAuth(
   async (user, request: NextRequest, params) => {
     const { conversationId } = params!;
-    const supabase = await createClient();
 
-    // Verify participant
-    if (!(await isActiveParticipant(supabase, conversationId, user.id))) {
+    if (!(await isActiveParticipant(conversationId, user.id))) {
       return ApiErrors.notConversationParticipant();
     }
 
-    // Parse query params
     const searchParams = Object.fromEntries(
       new URL(request.url).searchParams.entries()
     );
@@ -61,44 +48,58 @@ export const GET = withAuth(
 
     const { limit, after } = validation.data;
 
-    // Query messages with sender profile
-    let query = supabase
-      .from("messages")
-      .select(
-        "*, sender:profiles!sender_id(id, display_name, first_name, last_name, avatar_url)"
-      )
-      .eq("conversation_id", conversationId)
-      .eq("is_deleted", false);
+    try {
+      const where: any = {
+        conversation_id: conversationId,
+        is_deleted: false,
+      };
 
-    query = applyCursorPagination(query, { limit, after });
+      if (after) {
+        const cursor = decodeCursor(after);
+        if (cursor) {
+          where.OR = [
+            { created_at: { lt: new Date(cursor.created_at) } },
+            { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+          ];
+        }
+      }
 
-    const { data: messages, error } = await query;
+      const messages = await prisma.messages.findMany({
+        where,
+        include: {
+          profiles: {
+            select: { id: true, display_name: true, first_name: true, last_name: true, avatar_url: true },
+          },
+        },
+        orderBy: [{ created_at: "desc" }, { id: "desc" }],
+        take: limit + 1,
+      });
 
-    if (error) {
+      const shaped = messages.map((m) => {
+        const { profiles, ...rest } = m;
+        return { ...rest, sender: profiles, created_at: rest.created_at?.toISOString() ?? null };
+      });
+
+      return successResponse(buildPaginatedResponse(shaped as any, limit));
+    } catch (error) {
       console.error("Error fetching messages:", error);
       return ApiErrors.serverError();
     }
-
-    return successResponse(buildPaginatedResponse(messages || [], limit));
   }
 );
 
 /**
  * POST /api/conversations/:conversationId/messages
  * Send a message to any conversation (booking or direct).
- * Requires participant membership. DB trigger handles real-time broadcast.
  */
 export const POST = withAuth(
   async (user, request: NextRequest, params) => {
     const { conversationId } = params!;
-    const supabase = await createClient();
 
-    // Verify participant
-    if (!(await isActiveParticipant(supabase, conversationId, user.id))) {
+    if (!(await isActiveParticipant(conversationId, user.id))) {
       return ApiErrors.notConversationParticipant();
     }
 
-    // Parse body
     let rawData: Record<string, unknown>;
     try {
       rawData = await request.json();
@@ -111,25 +112,26 @@ export const POST = withAuth(
       return ApiErrors.validationError(parseZodError(validation.error));
     }
 
-    // Insert message
-    const { data: message, error } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        content: validation.data.content,
-      })
-      .select(
-        "*, sender:profiles!sender_id(id, display_name, first_name, last_name, avatar_url)"
-      )
-      .single();
+    try {
+      const message = await prisma.messages.create({
+        data: {
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content: validation.data.content,
+        },
+        include: {
+          profiles: {
+            select: { id: true, display_name: true, first_name: true, last_name: true, avatar_url: true },
+          },
+        },
+      });
 
-    if (error) {
+      const { profiles, ...rest } = message;
+      return successResponse({ message: { ...rest, sender: profiles } as any }, undefined, 201);
+    } catch (error) {
       console.error("Error sending message:", error);
       return ApiErrors.serverError();
     }
-
-    return successResponse({ message }, undefined, 201);
   }
 );
 

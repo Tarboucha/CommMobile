@@ -55,22 +55,13 @@ function fulfillmentIcon(method: string): keyof typeof Ionicons.glyphMap {
   }
 }
 
-/** Group cart items by providerId */
-function groupByProvider(items: BookingCartItem[]): Map<string, BookingCartItem[]> {
-  const groups = new Map<string, BookingCartItem[]>();
-  for (const item of items) {
-    const existing = groups.get(item.providerId) || [];
-    existing.push(item);
-    groups.set(item.providerId, existing);
-  }
-  return groups;
-}
-
 // --- Component ---
 
 export default function BookingReviewScreen() {
   const items = useCartStore((s) => s.items);
   const communityId = useCartStore((s) => s.communityId);
+  const providerId = useCartStore((s) => s.providerId);
+  const providerName = useCartStore((s) => s.providerName);
   const clearCart = useCartStore((s) => s.clearCart);
 
   // Form state
@@ -79,10 +70,6 @@ export default function BookingReviewScreen() {
   const [contactPhone, setContactPhone] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Group items by provider for split-at-checkout
-  const providerGroups = useMemo(() => groupByProvider(items), [items]);
-  const providerCount = providerGroups.size;
 
   // Derived values
   const hasDeliveryItems = useMemo(
@@ -118,6 +105,7 @@ export default function BookingReviewScreen() {
   const canSubmit =
     items.length > 0 &&
     paymentMethod &&
+    providerId &&
     (!hasDeliveryItems || selectedAddressId) &&
     !isSubmitting;
 
@@ -134,76 +122,32 @@ export default function BookingReviewScreen() {
     setIsSubmitting(true);
 
     try {
-      // Split into one booking per provider
-      const groups = Array.from(providerGroups.entries());
-      const results = await Promise.allSettled(
-        groups.map(([providerId, groupItems]) => {
-          // Calculate amounts for this provider's items
-          const groupSubtotal = groupItems.reduce(
-            (sum, i) => sum + i.priceAmount * i.quantity,
-            0
-          );
-          const groupDeliveryFees = groupItems.reduce((sum, i) => {
-            if (i.fulfillmentMethod === 'delivery' && i.deliveryFeeAmount) {
-              return sum + i.deliveryFeeAmount * i.quantity;
-            }
-            return sum;
-          }, 0);
-          const groupHasDelivery = groupItems.some(
-            (i) => i.fulfillmentMethod === 'delivery'
-          );
+      // Single provider, single booking — no split logic needed
+      const booking = await createBooking({
+        community_id: communityId,
+        items: items.map((item) => ({
+          offering_id: item.offeringId,
+          offering_version: item.offeringVersion,
+          quantity: item.quantity,
+          fulfillment_method: item.fulfillmentMethod,
+          schedule_id: item.scheduleId,
+          instance_date: item.instanceDate,
+        })),
+        payment_method: paymentMethod as 'cash' | 'external',
+        delivery_address_id: hasDeliveryItems ? selectedAddressId : null,
+        special_instructions: specialInstructions.trim() || undefined,
+        contact_phone: contactPhone.trim() || undefined,
+        idempotency_key: generateUUID(),
+      });
 
-          return createBooking({
-            community_id: communityId,
-            items: groupItems.map((item) => ({
-              offering_id: item.offeringId,
-              offering_version: item.offeringVersion,
-              quantity: item.quantity,
-              fulfillment_method: item.fulfillmentMethod,
-              schedule_id: item.scheduleId,
-              instance_date: item.instanceDate,
-            })),
-            payment_method: paymentMethod as 'cash' | 'external',
-            delivery_address_id: groupHasDelivery ? selectedAddressId : null,
-            special_instructions: specialInstructions.trim() || undefined,
-            contact_phone: contactPhone.trim() || undefined,
-            idempotency_key: generateUUID(),
-          });
-        })
-      );
-
-      const succeeded = results
-        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof createBooking>>> => r.status === 'fulfilled')
-        .map((r) => r.value);
-
-      const failed = results.filter((r) => r.status === 'rejected');
-
-      if (failed.length > 0 && succeeded.length > 0) {
-        // Partial success — alert user
-        Alert.alert(
-          'Partial Success',
-          `${succeeded.length} of ${groups.length} bookings were placed successfully. ${failed.length} failed. Please try again for the remaining items.`
-        );
-      }
-
-      if (succeeded.length > 0) {
-        clearCart();
-        router.replace({
-          pathname: '/booking/success',
-          params: {
-            bookingIds: succeeded.map((b) => b.id).join(','),
-            bookingNumbers: succeeded.map((b) => b.booking_number).join(','),
-          },
-        });
-      } else {
-        // All failed
-        setIsSubmitting(false);
-        handleError(failed[0]?.reason, {
-          severity: 'alert',
-          screen: 'booking-review',
-          userMessage: 'Failed to place booking. Please try again.',
-        });
-      }
+      clearCart();
+      router.replace({
+        pathname: '/booking/success',
+        params: {
+          bookingIds: booking.id,
+          bookingNumbers: booking.booking_number,
+        },
+      });
     } catch (error) {
       setIsSubmitting(false);
       handleError(error, {
@@ -245,35 +189,23 @@ export default function BookingReviewScreen() {
           contentContainerClassName="p-4 pb-40 gap-6"
           keyboardShouldPersistTaps="handled"
         >
-          {/* Split-at-checkout info */}
-          {providerCount > 1 && (
-            <View className="flex-row items-center gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
-              <Ionicons name="information-circle" size={20} color="#3B82F6" />
-              <Text className="text-sm text-blue-700 flex-1">
-                This will create {providerCount} separate bookings (one per provider).
+          {/* Provider header */}
+          {providerName && (
+            <View className="flex-row items-center gap-2">
+              <Ionicons name="person-circle-outline" size={20} color="#6B7280" />
+              <Text className="text-base font-semibold text-muted-foreground">
+                Order from {providerName}
               </Text>
             </View>
           )}
 
-          {/* Items grouped by provider */}
-          {Array.from(providerGroups.entries()).map(([providerId, groupItems]) => (
-            <View key={providerId} className="gap-3">
-              {providerCount > 1 && (
-                <View className="flex-row items-center gap-2">
-                  <Ionicons name="person-circle-outline" size={20} color="#6B7280" />
-                  <Text className="text-base font-semibold text-muted-foreground">
-                    {groupItems[0].providerName}
-                  </Text>
-                </View>
-              )}
-              {providerCount === 1 && (
-                <Text className="text-lg font-semibold">Items</Text>
-              )}
-              {groupItems.map((item) => (
-                <ItemRow key={item.cartItemKey} item={item} currencyCode={currencyCode} />
-              ))}
-            </View>
-          ))}
+          {/* Items */}
+          <View className="gap-3">
+            <Text className="text-lg font-semibold">Items</Text>
+            {items.map((item) => (
+              <ItemRow key={item.cartItemKey} item={item} currencyCode={currencyCode} />
+            ))}
+          </View>
 
           {/* Delivery Address (conditional) */}
           {hasDeliveryItems && (
@@ -358,9 +290,7 @@ export default function BookingReviewScreen() {
               <View className="flex-row items-center gap-2">
                 <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
                 <Text className="text-base font-bold text-primary-foreground">
-                  {providerCount > 1
-                    ? `Place ${providerCount} Bookings — ${formatCurrency(total, currencyCode)}`
-                    : `Place Booking — ${formatCurrency(total, currencyCode)}`}
+                  Place Booking — {formatCurrency(total, currencyCode)}
                 </Text>
               </View>
             )}

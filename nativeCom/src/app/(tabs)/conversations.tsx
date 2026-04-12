@@ -1,4 +1,3 @@
-import { useState, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -7,10 +6,11 @@ import {
   Pressable,
   Image,
 } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
-import { listConversations } from '@/lib/api/chat';
+import { useConversations } from '@/hooks/queries/use-conversations';
+import { useRefreshOnFocus } from '@/hooks/queries/use-refresh-on-focus';
 import type { ConversationListItem } from '@/types/chat';
 
 function getOtherParticipantName(conversation: ConversationListItem): string {
@@ -109,27 +109,8 @@ function ConversationItem({
 
 export default function ConversationsScreen() {
   const router = useRouter();
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const loadConversations = useCallback(async () => {
-    try {
-      const result = await listConversations();
-      setConversations(result);
-    } catch (err) {
-      console.error('Failed to load conversations:', err);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadConversations();
-    }, [loadConversations])
-  );
+  const { data: conversations, isLoading, isFetching, refetch } = useConversations();
+  useRefreshOnFocus(refetch);
 
   const handlePress = (conversation: ConversationListItem) => {
     const name = getOtherParticipantName(conversation);
@@ -150,7 +131,7 @@ export default function ConversationsScreen() {
   return (
     <FlatList
       className="flex-1 bg-background"
-      data={conversations}
+      data={conversations ?? []}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => (
         <ConversationItem
@@ -161,11 +142,8 @@ export default function ConversationsScreen() {
       contentContainerStyle={{ paddingTop: 12, paddingBottom: 24 }}
       refreshControl={
         <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => {
-            setIsRefreshing(true);
-            loadConversations();
-          }}
+          refreshing={isFetching && !isLoading}
+          onRefresh={() => refetch()}
         />
       }
       ListEmptyComponent={

@@ -6,25 +6,21 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { createPostSchema } from "@/lib/validations/post";
 import { paginationSchema } from "@/lib/validations/pagination";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 
 /**
  * GET /api/communities/[communityId]/posts
- * List community posts — RLS: only active community members can see
+ * List community posts
  */
-export const GET = withAuth(async (user, request: NextRequest, params) => {
+export const GET = withAuth(async (_user, request: NextRequest, params) => {
   const communityId = params?.communityId;
   if (!communityId) {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -36,23 +32,42 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
 
   const { limit, after } = validation.data;
 
-  let query = supabase
-    .from("community_posts")
-    .select("*, profiles!author_id(id, first_name, last_name, avatar_url)")
-    .eq("community_id", communityId)
-    .is("deleted_at", null)
-    .eq("status", "active");
+  try {
+    const where: any = {
+      community_id: communityId,
+      deleted_at: null,
+      status: "active",
+    };
 
-  query = applyCursorPagination(query, { limit, after });
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  const { data: posts, error } = await query;
+    const posts = await prisma.community_posts.findMany({
+      where,
+      include: {
+        profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+      },
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  if (error) {
+    const shaped = posts.map((p) => ({
+      ...p,
+      created_at: p.created_at?.toISOString() ?? null,
+    }));
+
+    return successResponse(buildPaginatedResponse(shaped as any, limit));
+  } catch (error) {
     console.error("Error fetching posts:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(posts || [], limit));
 });
 
 /**
@@ -65,16 +80,14 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
-
-  // Check membership + admin/owner role
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("id, member_role, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: communityId,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { id: true, member_role: true },
+  });
 
   if (!membership) {
     return ApiErrors.forbidden("You must be an active member of this community");
@@ -84,7 +97,6 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.forbidden("Only owners and admins can create posts");
   }
 
-  // Parse and validate body
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -97,26 +109,24 @@ export const POST = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.validationError(parseZodError(validation.error));
   }
 
-  const input = validation.data;
+  try {
+    const post = await prisma.community_posts.create({
+      data: {
+        ...validation.data,
+        community_id: communityId,
+        author_id: user.id,
+        status: "active",
+      },
+      include: {
+        profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+      },
+    });
 
-  // Insert post
-  const { data: post, error: createError } = await supabase
-    .from("community_posts")
-    .insert({
-      ...input,
-      community_id: communityId,
-      author_id: user.id,
-      status: "active",
-    })
-    .select("*, profiles!author_id(id, first_name, last_name, avatar_url)")
-    .single();
-
-  if (createError || !post) {
-    console.error("Failed to create post:", createError);
+    return successResponse({ post: post as any }, undefined, 201);
+  } catch (error) {
+    console.error("Failed to create post:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ post }, undefined, 201);
 });
 
 export async function PUT() {

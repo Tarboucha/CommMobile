@@ -6,17 +6,14 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { memberFilterSchema } from "@/lib/validations/community";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 import type { CommunityMemberResponse } from "@/types/community";
 
 /**
  * GET /api/communities/[communityId]/members
- * List community members — RLS: only active members can see others
+ * List community members
  */
 export const GET = withAuth(async (user, request: NextRequest, params) => {
   const communityId = params?.communityId;
@@ -24,7 +21,6 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
   const searchParams = Object.fromEntries(
     new URL(request.url).searchParams.entries()
   );
@@ -36,27 +32,42 @@ export const GET = withAuth(async (user, request: NextRequest, params) => {
 
   const { membership_status, limit, after } = validation.data;
 
-  let query = supabase
-    .from("community_members")
-    .select("*, profiles!profile_id(id, first_name, last_name, avatar_url)")
-    .eq("community_id", communityId);
+  try {
+    const where: any = { community_id: communityId };
+    where.membership_status = membership_status || "active";
 
-  if (membership_status) {
-    query = query.eq("membership_status", membership_status);
-  } else {
-    query = query.eq("membership_status", "active");
-  }
+    if (after) {
+      const cursor = decodeCursor(after);
+      if (cursor) {
+        where.OR = [
+          { created_at: { lt: new Date(cursor.created_at) } },
+          { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+        ];
+      }
+    }
 
-  query = applyCursorPagination(query, { limit, after });
+    const members = await prisma.community_members.findMany({
+      where,
+      include: {
+        profiles_community_members_profile_idToprofiles: {
+          select: { id: true, first_name: true, last_name: true, avatar_url: true },
+        },
+      },
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
 
-  const { data: members, error } = await query;
+    // Reshape relation name to match existing API contract
+    const shaped = members.map((m) => {
+      const { profiles_community_members_profile_idToprofiles, ...rest } = m;
+      return { ...rest, profiles: profiles_community_members_profile_idToprofiles, created_at: rest.created_at?.toISOString() ?? null };
+    });
 
-  if (error) {
+    return successResponse(buildPaginatedResponse(shaped as any, limit));
+  } catch (error) {
     console.error("Error fetching members:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse(buildPaginatedResponse(members || [], limit));
 });
 
 /**
@@ -69,112 +80,83 @@ export const POST = withAuth(async (user, _request, params) => {
     return ApiErrors.badRequest("Community ID is required");
   }
 
-  const supabase = await createClient();
+  try {
+    const community = await prisma.communities.findFirst({
+      where: { id: communityId, deleted_at: null, is_active: true },
+      select: { id: true, access_type: true, is_active: true, current_members_count: true, max_members: true, auto_approve_join_requests: true },
+    });
 
-  // Fetch community
-  const { data: community, error: communityError } = await supabase
-    .from("communities")
-    .select("id, access_type, is_active, deleted_at, current_members_count, max_members, auto_approve_join_requests")
-    .eq("id", communityId)
-    .is("deleted_at", null)
-    .eq("is_active", true)
-    .single();
-
-  if (communityError || !community) {
-    return ApiErrors.notFound("Community not found");
-  }
-
-  // Invite-only communities can't be joined directly
-  if (community.access_type === "invite_only") {
-    return ApiErrors.forbidden(
-      "This community is invite-only. You need an invitation to join."
-    );
-  }
-
-  // Check not already a member
-  const { data: existing } = await supabase
-    .from("community_members")
-    .select("id, membership_status")
-    .eq("community_id", communityId)
-    .eq("profile_id", user.id)
-    .single();
-
-  if (existing) {
-    if (existing.membership_status === "active") {
-      return ApiErrors.alreadyExists("You are already a member of this community");
+    if (!community) {
+      return ApiErrors.notFound("Community not found");
     }
-    if (existing.membership_status === "pending") {
-      return ApiErrors.alreadyExists("You already have a pending join request");
+
+    if (community.access_type === "invite_only") {
+      return ApiErrors.forbidden("This community is invite-only. You need an invitation to join.");
     }
-  }
 
-  // Check capacity
-  if (
-    community.max_members &&
-    (community.current_members_count || 0) >= community.max_members
-  ) {
-    return ApiErrors.conflict("This community has reached its maximum member capacity");
-  }
+    const existing = await prisma.community_members.findFirst({
+      where: { community_id: communityId, profile_id: user.id },
+      select: { id: true, membership_status: true },
+    });
 
-  // Determine status based on access_type
-  const isOpen =
-    community.access_type === "open" || community.auto_approve_join_requests;
-  const membershipStatus = isOpen ? "active" : "pending";
+    if (existing) {
+      if (existing.membership_status === "active") {
+        return ApiErrors.alreadyExists("You are already a member of this community");
+      }
+      if (existing.membership_status === "pending") {
+        return ApiErrors.alreadyExists("You already have a pending join request");
+      }
+    }
 
-  const now = new Date().toISOString();
+    if (community.max_members && (community.current_members_count || 0) >= community.max_members) {
+      return ApiErrors.conflict("This community has reached its maximum member capacity");
+    }
 
-  // If user previously left/was removed, update instead of insert
-  if (existing && (existing.membership_status === "left" || existing.membership_status === "removed")) {
-    const { data: member, error } = await supabase
-      .from("community_members")
-      .update({
-        join_method: "request" as const,
-        membership_status: membershipStatus as "active" | "pending",
+    const isOpen = community.access_type === "open" || community.auto_approve_join_requests;
+    const membershipStatus = isOpen ? "active" : "pending";
+    const now = new Date();
+
+    if (existing && (existing.membership_status === "left" || existing.membership_status === "removed")) {
+      const member = await prisma.community_members.update({
+        where: { id: existing.id },
+        data: {
+          join_method: "request",
+          membership_status: membershipStatus,
+          join_requested_at: now,
+          membership_approved_at: isOpen ? now : null,
+          removal_reason: null,
+          removed_by_profile_id: null,
+          membership_removed_at: null,
+        },
+      });
+
+      return successResponse<CommunityMemberResponse>(
+        { member: member as any },
+        isOpen ? "Joined community" : "Join request submitted",
+        isOpen ? 200 : 201
+      );
+    }
+
+    const member = await prisma.community_members.create({
+      data: {
+        community_id: communityId,
+        profile_id: user.id,
+        join_method: "request",
+        membership_status: membershipStatus,
         join_requested_at: now,
         membership_approved_at: isOpen ? now : null,
-        removal_reason: null,
-        removed_by_profile_id: null,
-        membership_removed_at: null,
-      })
-      .eq("id", existing.id)
-      .select()
-      .single();
-
-    if (error || !member) {
-      console.error("Error rejoining community:", error);
-      return ApiErrors.serverError();
-    }
+      },
+    });
 
     return successResponse<CommunityMemberResponse>(
-      { member },
+      { member: member as any },
       isOpen ? "Joined community" : "Join request submitted",
-      isOpen ? 200 : 201
+      201
     );
-  }
-
-  const { data: member, error } = await supabase
-    .from("community_members")
-    .insert({
-      community_id: communityId,
-      profile_id: user.id,
-      join_method: "request" as const,
-      membership_status: membershipStatus as "active" | "pending",
-      join_requested_at: now,
-      membership_approved_at: isOpen ? now : null,
-    })
-    .select()
-    .single();
-
-  if (error || !member) {
+  } catch (error) {
     console.error("Error joining community:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse<CommunityMemberResponse>(
-    { member },
-    isOpen ? "Joined community" : "Join request submitted",
-    201
-  );
 });
 
 export async function PUT() {

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { successResponse, handleUnsupportedMethod, ApiErrors } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { addressUpdateSchema, type AddressUpdateInput } from "@/lib/validations/address";
 import type { AddressResponse } from "@/types/address";
 import type { AddressUpdate } from "@/types/address";
@@ -15,27 +15,20 @@ import { geocodeAddressFromInput, RateLimiterTimeoutError } from "@/lib/utils/no
 export const GET = withAuth(async (user, request, params) => {
   const { addressId } = params!;
 
-  const supabase = await createClient();
+  const address = await prisma.addresses.findFirst({
+    where: { id: addressId, deleted_at: null },
+  });
 
-  // Fetch address
-  const { data: address, error: fetchError } = await supabase
-    .from("addresses")
-    .select("*")
-    .eq("id", addressId)
-    .is("deleted_at", null)
-    .single();
-
-  if (fetchError || !address) {
+  if (!address) {
     return ApiErrors.notFound("Address not found");
   }
 
-  // Users can only access their own addresses
   if (address.profile_id !== user.id) {
     return ApiErrors.forbidden("You can only access your own addresses");
   }
 
   return successResponse<AddressResponse>({
-    address,
+    address: address as any,
   });
 });
 
@@ -48,24 +41,18 @@ export const GET = withAuth(async (user, request, params) => {
 export const PATCH = withAuth(async (user, request, params) => {
   const { addressId } = params!;
 
-  const supabase = await createClient();
-
   // First, verify address exists and belongs to user
-  const { data: existingAddress, error: fetchError } = await supabase
-      .from("addresses")
-      .select("*")
-      .eq("id", addressId)
-      .is("deleted_at", null)
-      .single();
+  const existingAddress = await prisma.addresses.findFirst({
+    where: { id: addressId, deleted_at: null },
+  });
 
-    if (fetchError || !existingAddress) {
-      return ApiErrors.notFound("Address not found");
-    }
+  if (!existingAddress) {
+    return ApiErrors.notFound("Address not found");
+  }
 
-    // Users can only update their own addresses
-    if (existingAddress.profile_id !== user.id) {
-      return ApiErrors.forbidden("You can only update your own addresses");
-    }
+  if (existingAddress.profile_id !== user.id) {
+    return ApiErrors.forbidden("You can only update your own addresses");
+  }
 
     // Parse request body
     let rawData: Record<string, any>;
@@ -203,49 +190,35 @@ export const PATCH = withAuth(async (user, request, params) => {
     // Validation already normalized empty strings to null for nullable fields
     const processedData: AddressUpdate = { ...updateData } as AddressUpdate;
 
+  try {
     // If setting is_default to true, unset other default addresses for this profile
     if (processedData.is_default === true) {
-      const { error: updateError } = await supabase
-        .from("addresses")
-        .update({ is_default: false })
-        .eq("profile_id", existingAddress.profile_id)
-        .neq("id", addressId)
-        .is("deleted_at", null);
-
-      if (updateError) {
-        console.error("Failed to unset other default addresses:", updateError);
-        return ApiErrors.serverError();
-      }
+      await prisma.addresses.updateMany({
+        where: {
+          profile_id: existingAddress.profile_id,
+          id: { not: addressId },
+          deleted_at: null,
+        },
+        data: { is_default: false },
+      });
     }
 
     // Update address in database
-    const { error: updateError } = await supabase
-      .from("addresses")
-      .update({
+    const updatedAddress = await prisma.addresses.update({
+      where: { id: addressId },
+      data: {
         ...processedData,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", addressId);
+        updated_at: new Date(),
+      },
+    });
 
-    if (updateError) {
-      console.error("Failed to update address:", updateError);
-      return ApiErrors.serverError();
-    }
-
-    // Fetch updated address
-    const { data: updatedAddress, error: fetchUpdatedError } = await supabase
-      .from("addresses")
-      .select("*")
-      .eq("id", addressId)
-      .single();
-
-    if (fetchUpdatedError || !updatedAddress) {
-      return ApiErrors.notFound("Failed to fetch updated address");
-    }
-
-  return successResponse<AddressResponse>({
-    address: updatedAddress,
-  });
+    return successResponse<AddressResponse>({
+      address: updatedAddress as any,
+    });
+  } catch (error) {
+    console.error("Failed to update address:", error);
+    return ApiErrors.serverError();
+  }
 });
 
 /**
@@ -256,46 +229,32 @@ export const PATCH = withAuth(async (user, request, params) => {
 export const DELETE = withAuth(async (user, request, params) => {
   const { addressId } = params!;
 
-  const supabase = await createClient();
+  const existingAddress = await prisma.addresses.findFirst({
+    where: { id: addressId, deleted_at: null },
+  });
 
-  // First, verify address exists and belongs to user
-  const { data: existingAddress, error: fetchError } = await supabase
-    .from("addresses")
-    .select("*")
-    .eq("id", addressId)
-    .is("deleted_at", null)
-    .single();
-
-  if (fetchError || !existingAddress) {
+  if (!existingAddress) {
     return ApiErrors.notFound("Address not found");
   }
 
-  // Users can only delete their own addresses
   if (existingAddress.profile_id !== user.id) {
     return ApiErrors.forbidden("You can only delete your own addresses");
   }
 
-    // Soft delete by setting deleted_at timestamp
-    const { error: deleteError } = await supabase
-      .from("addresses")
-      .update({
-        deleted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", addressId);
+  try {
+    await prisma.addresses.update({
+      where: { id: addressId },
+      data: {
+        deleted_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
 
-    if (deleteError) {
-      console.error("Failed to delete address:", deleteError);
-      return ApiErrors.serverError();
-    }
-
-  return successResponse(
-    {
-      message: "Address deleted successfully",
-    },
-    undefined,
-    200
-  );
+    return successResponse({ message: "Address deleted successfully" });
+  } catch (error) {
+    console.error("Failed to delete address:", error);
+    return ApiErrors.serverError();
+  }
 });
 
 // Catch unsupported methods

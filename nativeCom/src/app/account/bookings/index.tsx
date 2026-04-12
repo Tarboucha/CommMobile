@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
   View,
   FlatList,
@@ -7,11 +7,12 @@ import {
   RefreshControl,
   Image,
 } from 'react-native';
-import { Stack, router, useFocusEffect } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { getMyBookings } from '@/lib/api/bookings';
+import { useMyBookings } from '@/hooks/queries/use-bookings';
+import { useRefreshOnFocus } from '@/hooks/queries/use-refresh-on-focus';
 import type { BookingListItem } from '@/types/booking';
 
 // ============================================================================
@@ -32,6 +33,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   completed: { label: 'Completed', color: '#059669', bg: 'bg-emerald-100' },
   cancelled: { label: 'Cancelled', color: '#EF4444', bg: 'bg-red-100' },
   refunded: { label: 'Refunded', color: '#6B7280', bg: 'bg-gray-100' },
+  loaned_out: { label: 'On Loan', color: '#8B5CF6', bg: 'bg-purple-100' },
+  returned: { label: 'Returned', color: '#059669', bg: 'bg-emerald-100' },
+  overdue: { label: 'Overdue', color: '#DC2626', bg: 'bg-red-100' },
 };
 
 function formatDate(dateStr: string): string {
@@ -45,39 +49,11 @@ function formatDate(dateStr: string): string {
 
 export default function MyBookingsScreen() {
   const userId = useAuthStore((s) => s.user?.id ?? null);
-  const [bookings, setBookings] = useState<BookingListItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('all');
-  const [error, setError] = useState<string | null>(null);
 
-  const loadBookings = useCallback(async (silent = false) => {
-    try {
-      if (!silent) setIsLoading(true);
-      setError(null);
-      const role = activeTab === 'all' ? undefined : activeTab;
-      const data = await getMyBookings(role);
-      setBookings(data);
-    } catch (err) {
-      console.error('Failed to load bookings:', err);
-      setError('Failed to load bookings');
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [activeTab]);
-
-  // Reload on focus and tab change
-  useFocusEffect(
-    useCallback(() => {
-      loadBookings();
-    }, [loadBookings])
-  );
-
-  const onRefresh = useCallback(() => {
-    setIsRefreshing(true);
-    loadBookings(true);
-  }, [loadBookings]);
+  const role = activeTab === 'all' ? undefined : activeTab;
+  const { data: bookings, isLoading, isFetching, error, refetch } = useMyBookings(role);
+  useRefreshOnFocus(refetch);
 
   const handleBookingPress = (booking: BookingListItem) => {
     router.push({
@@ -111,21 +87,21 @@ export default function MyBookingsScreen() {
         </View>
 
         {/* Content */}
-        {isLoading && !isRefreshing ? (
+        {isLoading ? (
           <View className="flex-1 justify-center items-center">
             <ActivityIndicator size="large" />
           </View>
         ) : error ? (
           <View className="flex-1 justify-center items-center p-6 gap-4">
             <Ionicons name="alert-circle-outline" size={48} color="#9CA3AF" />
-            <Text className="text-base text-muted-foreground text-center">{error}</Text>
-            <Pressable className="px-6 py-3 rounded-lg bg-primary" onPress={() => loadBookings()}>
+            <Text className="text-base text-muted-foreground text-center">Failed to load bookings</Text>
+            <Pressable className="px-6 py-3 rounded-lg bg-primary" onPress={() => refetch()}>
               <Text className="text-base font-semibold text-primary-foreground">Retry</Text>
             </Pressable>
           </View>
         ) : (
           <FlatList
-            data={bookings}
+            data={bookings ?? []}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <BookingCard
@@ -136,7 +112,10 @@ export default function MyBookingsScreen() {
             )}
             contentContainerStyle={{ padding: 16, gap: 12 }}
             refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />
+              <RefreshControl
+                refreshing={isFetching && !isLoading}
+                onRefresh={() => refetch()}
+              />
             }
             ListEmptyComponent={
               <View className="flex-1 justify-center items-center p-6 gap-4 mt-16">

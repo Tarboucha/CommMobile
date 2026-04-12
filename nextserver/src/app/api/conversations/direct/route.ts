@@ -6,6 +6,7 @@ import {
   parseZodError,
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
+import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 import { createDirectConversationSchema } from "@/lib/validations/conversation";
 
@@ -14,9 +15,6 @@ import { createDirectConversationSchema } from "@/lib/validations/conversation";
  * Find or create a direct conversation between the authenticated user and another user.
  */
 export const POST = withAuth(async (user, request: NextRequest) => {
-  const supabase = await createClient();
-
-  // Parse body
   let rawData: Record<string, unknown>;
   try {
     rawData = await request.json();
@@ -31,85 +29,82 @@ export const POST = withAuth(async (user, request: NextRequest) => {
 
   const { other_profile_id } = validation.data;
 
-  // Cannot DM yourself
   if (other_profile_id === user.id) {
     return ApiErrors.badRequest("Cannot create a conversation with yourself");
   }
 
-  // Verify other profile exists
-  const { data: otherProfile } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", other_profile_id)
-    .single();
+  const otherProfile = await prisma.profiles.findUnique({
+    where: { id: other_profile_id },
+    select: { id: true },
+  });
 
   if (!otherProfile) {
     return ApiErrors.notFound("Profile");
   }
 
-  // Find existing direct conversation between the two users
-  // Step 1: Get current user's active direct conversations
-  const { data: myParticipations } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id, conversations!inner(id, conversation_type)")
-    .eq("profile_id", user.id)
-    .eq("conversations.conversation_type", "direct")
-    .is("left_at", null)
-    .is("removed_at", null);
+  try {
+    // Find existing direct conversation between the two users
+    const myParticipations = await prisma.conversation_participants.findMany({
+      where: {
+        profile_id: user.id,
+        left_at: null,
+        removed_at: null,
+        conversations: { conversation_type: "direct" },
+      },
+      select: { conversation_id: true },
+    });
 
-  const myConvoIds = (myParticipations || []).map((p: any) => p.conversation_id);
+    const myConvoIds = myParticipations.map((p) => p.conversation_id);
 
-  if (myConvoIds.length > 0) {
-    // Step 2: Check if the other user is also a participant in any of those
-    const { data: match } = await supabase
-      .from("conversation_participants")
-      .select("conversation_id")
-      .eq("profile_id", other_profile_id)
-      .in("conversation_id", myConvoIds)
-      .is("left_at", null)
-      .is("removed_at", null)
-      .limit(1)
-      .maybeSingle();
+    if (myConvoIds.length > 0) {
+      const match = await prisma.conversation_participants.findFirst({
+        where: {
+          profile_id: other_profile_id,
+          conversation_id: { in: myConvoIds },
+          left_at: null,
+          removed_at: null,
+        },
+        select: { conversation_id: true },
+      });
 
-    if (match) {
-      // Return existing conversation
-      const { data: conversation } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("id", match.conversation_id)
-        .single();
+      if (match) {
+        const conversation = await prisma.conversations.findUnique({
+          where: { id: match.conversation_id },
+        });
 
-      if (conversation) {
-        return successResponse({ conversation });
+        if (conversation) {
+          return successResponse({ conversation: conversation as any });
+        }
       }
     }
-  }
 
-  // Use SECURITY DEFINER function to atomically create conversation + participants
-  // (Bypasses chicken-and-egg: INSERT needs no participants, but SELECT policy requires them)
-  const { data: result, error: rpcError } = await supabase.rpc(
-    "create_direct_conversation",
-    { p_other_profile_id: other_profile_id }
-  );
+    // Use SECURITY DEFINER RPC to atomically create conversation + participants
+    // Keep Supabase client for this RPC call
+    const supabase = await createClient();
+    const { data: result, error: rpcError } = await supabase.rpc(
+      "create_direct_conversation",
+      { p_other_profile_id: other_profile_id }
+    );
 
-  if (rpcError || !result) {
-    console.error("Failed to create direct conversation:", rpcError);
+    if (rpcError || !result) {
+      console.error("Failed to create direct conversation:", rpcError);
+      return ApiErrors.serverError();
+    }
+
+    const conversation = await prisma.conversations.findUnique({
+      where: { id: result },
+    });
+
+    if (!conversation) {
+      console.error("Failed to fetch newly created conversation");
+      return ApiErrors.serverError();
+    }
+
+    return successResponse({ conversation: conversation as any }, undefined, 201);
+  } catch (error) {
+    console.error("Error in direct conversation:", error);
     return ApiErrors.serverError();
   }
-
-  // Fetch the full conversation (now visible since participants exist)
-  const { data: conversation } = await supabase
-    .from("conversations")
-    .select("*")
-    .eq("id", result)
-    .single();
-
-  if (!conversation) {
-    console.error("Failed to fetch newly created conversation");
-    return ApiErrors.serverError();
-  }
-
-  return successResponse({ conversation }, undefined, 201);
 });
 
 export async function GET() {

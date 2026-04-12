@@ -1,9 +1,10 @@
 import { fetchAPI } from '@/lib/api/client';
 import type { BoardFeedResponse } from '@/types/board';
 import type { CommunityPost, CreatePostInput } from '@/types/post';
+import type { PaginatedResponse } from '@/types/community';
 
 // ============================================================================
-// Board Feed
+// Board Feed (legacy combined endpoint — used to fetch the pinned item)
 // ============================================================================
 
 export async function getBoardFeed(
@@ -25,6 +26,22 @@ export async function getBoardFeed(
 // ============================================================================
 // Posts
 // ============================================================================
+
+export async function getCommunityPosts(
+  communityId: string,
+  limit = 20,
+  cursor?: string
+): Promise<PaginatedResponse<CommunityPost>> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('after', cursor);
+
+  const response = await fetchAPI<{
+    success: boolean;
+    data: PaginatedResponse<CommunityPost>;
+  }>(`/api/communities/${communityId}/posts?${params}`, { method: 'GET' });
+
+  return response.data;
+}
 
 export async function createPost(
   communityId: string,

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
   View,
   FlatList,
@@ -8,12 +8,12 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import type { Href } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { getCommunities, browseCommunities } from '@/lib/api/communities';
+import { useMyCommunities, useBrowseCommunities } from '@/hooks/queries/use-communities';
+import { useRefreshOnFocus } from '@/hooks/queries/use-refresh-on-focus';
 import type { Community } from '@/types/community';
 
 // ─── Shared sub-components ──────────────────────────────────────────
@@ -76,28 +76,10 @@ function CommunityCard({ community, browse }: { community: Community; browse?: b
 // ─── My Communities list ─────────────────────────────────────────────
 
 function MyCommunities() {
-  const [communities, setCommunities] = useState<Community[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { data, isLoading, isFetching, refetch } = useMyCommunities();
+  useRefreshOnFocus(refetch);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const result = await getCommunities();
-      setCommunities(result.data);
-    } catch (err) {
-      console.error('Failed to fetch communities:', err);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      setIsLoading(true);
-      fetchData();
-    }, [fetchData])
-  );
+  const communities = data?.data ?? [];
 
   if (isLoading) {
     return (
@@ -137,8 +119,8 @@ function MyCommunities() {
       contentContainerStyle={{ paddingTop: 12, paddingBottom: 80 }}
       refreshControl={
         <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => { setIsRefreshing(true); fetchData(); }}
+          refreshing={isFetching && !isLoading}
+          onRefresh={() => refetch()}
         />
       }
     />
@@ -148,28 +130,10 @@ function MyCommunities() {
 // ─── Browse Communities list ─────────────────────────────────────────
 
 function BrowseCommunities() {
-  const [communities, setCommunities] = useState<Community[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const { data, isLoading, isFetching, refetch } = useBrowseCommunities();
+  useRefreshOnFocus(refetch);
 
-  const fetchData = useCallback(async () => {
-    try {
-      const result = await browseCommunities();
-      setCommunities(result.data);
-    } catch (err) {
-      console.error('Failed to browse communities:', err);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      setIsLoading(true);
-      fetchData();
-    }, [fetchData])
-  );
+  const communities = data?.data ?? [];
 
   if (isLoading) {
     return (
@@ -201,8 +165,8 @@ function BrowseCommunities() {
       contentContainerStyle={{ paddingTop: 12, paddingBottom: 80 }}
       refreshControl={
         <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={() => { setIsRefreshing(true); fetchData(); }}
+          refreshing={isFetching && !isLoading}
+          onRefresh={() => refetch()}
         />
       }
     />

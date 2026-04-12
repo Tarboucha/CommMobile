@@ -1,5 +1,5 @@
 import { View, FlatList, Pressable, Image, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useRouter, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
 import { useCartStore, type BookingCartItem } from '@/lib/stores/cart-store';
@@ -13,7 +13,6 @@ const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   product: 'cube-outline',
   service: 'construct-outline',
   event: 'calendar-outline',
-  share: 'share-outline',
 };
 
 function CartItemRow({ item }: { item: BookingCartItem }) {
@@ -89,10 +88,10 @@ function CartItemRow({ item }: { item: BookingCartItem }) {
 }
 
 export default function CartScreen() {
-  const { communityId } = useLocalSearchParams<{ communityId: string }>();
   const router = useRouter();
 
   const items = useCartStore((s) => s.items);
+  const providerName = useCartStore((s) => s.providerName);
   const clearCart = useCartStore((s) => s.clearCart);
   const getTotalAmount = useCartStore((s) => s.getTotalAmount);
   const getItemCount = useCartStore((s) => s.getItemCount);
@@ -102,7 +101,7 @@ export default function CartScreen() {
   const currency = items[0]?.currencyCode ?? 'EUR';
 
   function handleClearCart() {
-    Alert.alert('Clear Cart', 'Remove all items from your cart?', [
+    Alert.alert('Clear Order', 'Remove all items from your order?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Clear', style: 'destructive', onPress: clearCart },
     ]);
@@ -113,7 +112,7 @@ export default function CartScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: 'Cart',
+          title: 'Your Order',
           headerRight: () =>
             items.length > 0 ? (
               <Pressable onPress={handleClearCart} className="mr-2">
@@ -127,7 +126,7 @@ export default function CartScreen() {
           <View className="flex-1 justify-center items-center p-6 gap-4">
             <Ionicons name="cart-outline" size={64} color="#A1A1AA" />
             <Text className="text-lg font-semibold text-muted-foreground">
-              Your cart is empty
+              Your order is empty
             </Text>
             <Pressable
               onPress={() => router.back()}
@@ -140,11 +139,21 @@ export default function CartScreen() {
           </View>
         ) : (
           <>
+            {/* Provider header */}
+            {providerName && (
+              <View className="flex-row items-center gap-2 mx-4 mt-4 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+                <Ionicons name="person-circle-outline" size={20} color="#660000" />
+                <Text className="text-sm font-semibold text-foreground">
+                  Order from {providerName}
+                </Text>
+              </View>
+            )}
+
             <FlatList
               data={items}
               keyExtractor={(item) => item.cartItemKey}
               renderItem={({ item }) => <CartItemRow item={item} />}
-              contentContainerClassName="pt-4 pb-40"
+              contentContainerClassName="pt-3 pb-40"
               showsVerticalScrollIndicator={false}
             />
 

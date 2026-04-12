@@ -4,6 +4,8 @@ import { io, Socket } from 'socket.io-client'
 import Toast from 'react-native-toast-message'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { supabase } from '@/lib/supabase/client'
+import { queryClient } from '@/lib/query-client'
+import { queryKeys } from '@/lib/query-keys'
 import type { SocketContextValue } from '@/types/socket'
 import { handleError } from '@/lib/services/error-service'
 
@@ -36,12 +38,13 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
   const socketUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3002'
 
-  // Handle badge update — just update the count
+  // Handle badge update — update count + invalidate notifications cache
   const handleBadgeUpdate = useCallback((event: { badge_count: number }) => {
     setBadgeCount(event.badge_count)
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all })
   }, [])
 
-  // Handle new notification — show toast with actual content
+  // Handle new notification — show toast + invalidate caches
   const handleNewNotification = useCallback((event: {
     id: string
     type: string
@@ -59,6 +62,22 @@ export function SocketProvider({ children }: SocketProviderProps) {
       autoHide: true,
       topOffset: 60,
     })
+
+    // Invalidate notification caches
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all })
+
+    // Invalidate related caches based on notification type
+    if (event.type.startsWith('booking_')) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.bookings.all })
+    }
+    if (event.type.startsWith('community_')) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.communities.all })
+    }
+
+    // Invalidate conversations list (new message notifications update preview/ordering)
+    if (event.type === 'new_message') {
+      queryClient.invalidateQueries({ queryKey: queryKeys.conversations.all })
+    }
   }, [])
 
   useEffect(() => {

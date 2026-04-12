@@ -5,6 +5,7 @@ import {
   handleUnsupportedMethod,
   ApiErrors,
 } from "@/lib/utils/api-response";
+import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -17,45 +18,38 @@ export const GET = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Invite token is required");
   }
 
-  const supabase = await createClient();
+  const community = await prisma.communities.findFirst({
+    where: { invite_link_token: token, is_active: true },
+    select: {
+      id: true, community_name: true, community_description: true,
+      current_members_count: true, max_members: true, access_type: true,
+      invite_link_expires_at: true,
+    },
+  });
 
-  // Look up community by invite link token
-  const { data: community, error } = await supabase
-    .from("communities")
-    .select("id, community_name, community_description, current_members_count, max_members, access_type")
-    .eq("invite_link_token", token)
-    .eq("is_active", true)
-    .single();
-
-  if (error || !community) {
+  if (!community) {
     return ApiErrors.notFound("Invite link");
   }
 
-  // Check if token is expired
-  const { data: fullCommunity } = await supabase
-    .from("communities")
-    .select("invite_link_expires_at")
-    .eq("id", community.id)
-    .single();
-
-  if (fullCommunity?.invite_link_expires_at) {
-    const expiresAt = new Date(fullCommunity.invite_link_expires_at);
-    if (expiresAt < new Date()) {
+  if (community.invite_link_expires_at) {
+    if (new Date(community.invite_link_expires_at) < new Date()) {
       return ApiErrors.badRequest("This invite link has expired");
     }
   }
 
-  // Check if user is already a member
-  const { data: membership } = await supabase
-    .from("community_members")
-    .select("id, membership_status")
-    .eq("community_id", community.id)
-    .eq("profile_id", user.id)
-    .eq("membership_status", "active")
-    .single();
+  const membership = await prisma.community_members.findFirst({
+    where: {
+      community_id: community.id,
+      profile_id: user.id,
+      membership_status: "active",
+    },
+    select: { id: true },
+  });
+
+  const { invite_link_expires_at, ...communityData } = community;
 
   return successResponse({
-    community,
+    community: communityData,
     is_already_member: !!membership,
   });
 });
@@ -63,8 +57,7 @@ export const GET = withAuth(async (user, _request: NextRequest, params) => {
 /**
  * POST /api/invite/[token]
  * Accept an invite link — join the community
- * Uses a SECURITY DEFINER function to bypass RLS safely
- * (the function validates the token server-side before inserting)
+ * Uses a SECURITY DEFINER function (kept as Supabase RPC)
  */
 export const POST = withAuth(async (user, _request: NextRequest, params) => {
   const token = params?.token;
@@ -72,6 +65,7 @@ export const POST = withAuth(async (user, _request: NextRequest, params) => {
     return ApiErrors.badRequest("Invite token is required");
   }
 
+  // Keep Supabase for RPC call
   const supabase = await createClient();
 
   const { data, error } = await supabase.rpc("join_community_via_invite_link", {

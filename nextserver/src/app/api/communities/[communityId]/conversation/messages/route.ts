@@ -5,49 +5,42 @@ import {
   ApiErrors,
   parseZodError,
 } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { sendMessageSchema, messageQuerySchema } from "@/lib/validations/message";
-import {
-  applyCursorPagination,
-  buildPaginatedResponse,
-} from "@/lib/utils/pagination";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 
 /**
  * GET /api/communities/:communityId/conversation/messages
  * Paginated message history (newest first).
- * Includes sender profile info.
  */
 export const GET = withAuth(
   async (user, request: NextRequest, params) => {
     const { communityId } = params!;
-    const supabase = await createClient();
 
-    // Verify membership
-    const { data: membership } = await supabase
-      .from("community_members")
-      .select("profile_id")
-      .eq("community_id", communityId)
-      .eq("profile_id", user.id)
-      .eq("membership_status", "active")
-      .maybeSingle();
+    const membership = await prisma.community_members.findFirst({
+      where: {
+        community_id: communityId,
+        profile_id: user.id,
+        membership_status: "active",
+      },
+    });
 
     if (!membership) {
       return ApiErrors.notCommunityMember();
     }
 
-    // Get the conversation ID
-    const { data: conversation } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("community_id", communityId)
-      .eq("conversation_type", "community")
-      .maybeSingle();
+    const conversation = await prisma.conversations.findFirst({
+      where: {
+        community_id: communityId,
+        conversation_type: "community",
+      },
+      select: { id: true },
+    });
 
     if (!conversation) {
       return ApiErrors.notFound("Conversation");
     }
 
-    // Parse query params
     const searchParams = Object.fromEntries(
       new URL(request.url).searchParams.entries()
     );
@@ -59,25 +52,44 @@ export const GET = withAuth(
 
     const { limit, after } = validation.data;
 
-    // Query messages with sender profile
-    let query = supabase
-      .from("messages")
-      .select(
-        "*, sender:profiles!sender_id(id, display_name, first_name, last_name, avatar_url)"
-      )
-      .eq("conversation_id", conversation.id)
-      .eq("is_deleted", false);
+    try {
+      const where: any = {
+        conversation_id: conversation.id,
+        is_deleted: false,
+      };
 
-    query = applyCursorPagination(query, { limit, after });
+      if (after) {
+        const cursor = decodeCursor(after);
+        if (cursor) {
+          where.OR = [
+            { created_at: { lt: new Date(cursor.created_at) } },
+            { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+          ];
+        }
+      }
 
-    const { data: messages, error } = await query;
+      const messages = await prisma.messages.findMany({
+        where,
+        include: {
+          profiles: {
+            select: { id: true, display_name: true, first_name: true, last_name: true, avatar_url: true },
+          },
+        },
+        orderBy: [{ created_at: "desc" }, { id: "desc" }],
+        take: limit + 1,
+      });
 
-    if (error) {
+      // Reshape: rename 'profiles' to 'sender' for API contract
+      const shaped = messages.map((m) => {
+        const { profiles, ...rest } = m;
+        return { ...rest, sender: profiles, created_at: rest.created_at?.toISOString() ?? null };
+      });
+
+      return successResponse(buildPaginatedResponse(shaped as any, limit));
+    } catch (error) {
       console.error("Error fetching messages:", error);
       return ApiErrors.serverError();
     }
-
-    return successResponse(buildPaginatedResponse(messages || [], limit));
   }
 );
 
@@ -88,34 +100,31 @@ export const GET = withAuth(
 export const POST = withAuth(
   async (user, request: NextRequest, params) => {
     const { communityId } = params!;
-    const supabase = await createClient();
 
-    // Verify membership
-    const { data: membership } = await supabase
-      .from("community_members")
-      .select("profile_id")
-      .eq("community_id", communityId)
-      .eq("profile_id", user.id)
-      .eq("membership_status", "active")
-      .maybeSingle();
+    const membership = await prisma.community_members.findFirst({
+      where: {
+        community_id: communityId,
+        profile_id: user.id,
+        membership_status: "active",
+      },
+    });
 
     if (!membership) {
       return ApiErrors.notCommunityMember();
     }
 
-    // Get the conversation ID
-    const { data: conversation } = await supabase
-      .from("conversations")
-      .select("id")
-      .eq("community_id", communityId)
-      .eq("conversation_type", "community")
-      .maybeSingle();
+    const conversation = await prisma.conversations.findFirst({
+      where: {
+        community_id: communityId,
+        conversation_type: "community",
+      },
+      select: { id: true },
+    });
 
     if (!conversation) {
       return ApiErrors.notFound("Conversation");
     }
 
-    // Parse body
     let rawData: Record<string, any>;
     try {
       rawData = await request.json();
@@ -128,24 +137,25 @@ export const POST = withAuth(
       return ApiErrors.validationError(parseZodError(validation.error));
     }
 
-    // Insert message
-    const { data: message, error } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: conversation.id,
-        sender_id: user.id,
-        content: validation.data.content,
-      })
-      .select(
-        "*, sender:profiles!sender_id(id, display_name, first_name, last_name, avatar_url)"
-      )
-      .single();
+    try {
+      const message = await prisma.messages.create({
+        data: {
+          conversation_id: conversation.id,
+          sender_id: user.id,
+          content: validation.data.content,
+        },
+        include: {
+          profiles: {
+            select: { id: true, display_name: true, first_name: true, last_name: true, avatar_url: true },
+          },
+        },
+      });
 
-    if (error) {
+      const { profiles, ...rest } = message;
+      return successResponse({ message: { ...rest, sender: profiles } as any }, undefined, 201);
+    } catch (error) {
       console.error("Error sending message:", error);
       return ApiErrors.serverError();
     }
-
-    return successResponse({ message }, undefined, 201);
   }
 );

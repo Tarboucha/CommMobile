@@ -1,5 +1,5 @@
 import { successResponse, handleUnsupportedMethod, ApiErrors } from "@/lib/utils/api-response";
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { baseProfileSchema } from "@/lib/validations/profile";
 import { withAuth } from "@/lib/utils/api-route-helper";
 
@@ -16,16 +16,11 @@ export const GET = withAuth(async (user, _request, params) => {
     return ApiErrors.forbidden("You can only access your own profile");
   }
 
-  const supabase = await createClient();
+  const profile = await prisma.profiles.findFirst({
+    where: { id: profileId, deleted_at: null },
+  });
 
-  const { data: profile, error: fetchError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", profileId)
-    .is("deleted_at", null)
-    .single();
-
-  if (fetchError || !profile) {
+  if (!profile) {
     return ApiErrors.notFound("Profile not found");
   }
 
@@ -87,26 +82,20 @@ export const PATCH = withAuth(async (user, request, params) => {
     return successResponse({ profile: user });
   }
 
-  const supabase = await createClient();
+  try {
+    const updatedProfile = await prisma.profiles.update({
+      where: { id: profileId },
+      data: {
+        ...updateFields,
+        updated_at: new Date(),
+      },
+    });
 
-  // Update profile
-  const { data: updatedProfile, error: updateError } = await supabase
-    .from("profiles")
-    .update({
-      ...updateFields,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", profileId)
-    .is("deleted_at", null)
-    .select()
-    .single();
-
-  if (updateError) {
-    console.error("Failed to update profile:", updateError);
+    return successResponse({ profile: updatedProfile });
+  } catch (error) {
+    console.error("Failed to update profile:", error);
     return ApiErrors.serverError();
   }
-
-  return successResponse({ profile: updatedProfile });
 });
 
 // Catch unsupported methods

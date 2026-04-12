@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { headers } from 'next/headers'
 import type { NextRequest } from 'next/server'
-import { Database } from '@/types/supabase'
 
 /**
  * Extract Bearer token from Authorization header
@@ -27,7 +26,7 @@ export function createClientFromRequest(request: NextRequest) {
     console.log('[createClientFromRequest] Bearer token extracted:', bearerToken ? 'Yes' : 'No')
   }
 
-  return createServerClient<Database>(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_OR_PUBLISHABLE_KEY!,
     {
@@ -71,7 +70,7 @@ export async function createClient() {
     console.log('[createClient] Bearer token extracted:', bearerToken ? 'Yes' : 'No')
   }
 
-  return createServerClient<Database>(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_OR_PUBLISHABLE_KEY!,
     {
