@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import {
   successResponse,
@@ -7,6 +8,7 @@ import {
   handleUnsupportedMethod,
 } from "@/lib/utils/api-response";
 import { prisma } from "@/lib/prisma";
+import { conversation_type } from "@/generated/prisma/client";
 import { conversationsListQuerySchema } from "@/lib/validations/conversation";
 
 /**
@@ -27,7 +29,7 @@ export const GET = withAuth(async (user, request: NextRequest) => {
 
   try {
     // Get user's active participations with conversation details
-    const conversationTypes = type ? [type] : ["direct", "booking"];
+    const conversationTypes = (type ? [type] : ["direct", "booking"]) as conversation_type[];
 
     const participations = await prisma.conversation_participants.findMany({
       where: {
@@ -79,7 +81,16 @@ export const GET = withAuth(async (user, request: NextRequest) => {
 
     // Build response
     const conversations = participations.map((p) => {
-      const convo = p.conversations;
+      const convo = (p as Record<string, unknown>).conversations as {
+        id: string;
+        conversation_type: string;
+        booking_id: string | null;
+        community_id: string | null;
+        title: string | null;
+        last_message_at: Date | null;
+        last_message_preview: string | null;
+        created_at: Date | null;
+      };
       return {
         id: convo.id,
         conversation_type: convo.conversation_type,
@@ -96,9 +107,8 @@ export const GET = withAuth(async (user, request: NextRequest) => {
     });
 
     return successResponse({ conversations });
-  } catch (error) {
-    console.error("Error fetching conversations:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

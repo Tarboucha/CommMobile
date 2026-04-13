@@ -10,13 +10,14 @@ interface Props {
   isOwn: boolean;
   bookingId: string;
   userId: string;
+  onCounter?: () => void;
 }
 
 function formatCurrency(amount: number, currency: string): string {
   return `${amount.toFixed(2)} ${currency}`;
 }
 
-export function PriceOfferCard({ message, isOwn, bookingId, userId }: Props) {
+export function PriceOfferCard({ message, isOwn, bookingId, userId, onCounter }: Props) {
   const meta = message.metadata as {
     offer_id?: string;
     offered_amount?: number;
@@ -87,9 +88,7 @@ export function PriceOfferCard({ message, isOwn, bookingId, userId }: Props) {
 
             <Pressable
               className="flex-1 py-3 items-center justify-center border-r border-border"
-              onPress={() => {
-                // TODO: open counter-offer sheet with pre-filled amount
-              }}
+              onPress={() => onCounter?.()}
               disabled={isPending}
             >
               <View className="flex-row items-center gap-1.5">

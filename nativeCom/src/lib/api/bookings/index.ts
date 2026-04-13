@@ -7,6 +7,7 @@ import type {
   BookingStatusUpdatePayload,
   OfferActionPayload,
   PriceOffer,
+  CalendarResponse,
 } from '@/types/booking';
 
 /**
@@ -123,4 +124,17 @@ export async function getOffers(bookingId: string): Promise<PriceOffer[]> {
   }>(`/api/v1/bookings/${bookingId}/offers`, { method: 'GET' });
 
   return response.data.offers;
+}
+
+/**
+ * Fetch bookings for a given month, grouped by date for calendar display.
+ * @param month — "YYYY-MM" format
+ */
+export async function getCalendarBookings(month: string): Promise<CalendarResponse> {
+  const response = await fetchAPI<{
+    success: boolean;
+    data: CalendarResponse;
+  }>(`/api/v1/bookings/calendar?month=${month}`, { method: 'GET' });
+
+  return response.data;
 }

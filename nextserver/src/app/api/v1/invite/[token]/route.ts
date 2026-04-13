@@ -58,7 +58,7 @@ export const POST = withAuth(async (user, _request: NextRequest, params) => {
     let result: [{ join_community_via_invite_link: Record<string, unknown> }];
     try {
       result = await prisma.$queryRaw<[{ join_community_via_invite_link: Record<string, unknown> }]>`
-        SELECT public.join_community_via_invite_link(${token}::text) AS join_community_via_invite_link
+        SELECT public.join_community_via_invite_link(${token}::text, ${user.id}::uuid) AS join_community_via_invite_link
       `;
     } catch (err) {
       mapRpcError(err);

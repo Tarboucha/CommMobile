@@ -174,44 +174,25 @@ function BookingAction({ offering }: { offering: Offering }) {
 
 function LoanBookingButton({ offering }: { offering: Offering }) {
   const [showSheet, setShowSheet] = useState(false);
-  const [showOfferSheet, setShowOfferSheet] = useState(false);
-  const hasPriceToNegotiate = (offering.price_amount ?? 0) > 0;
 
+  // Loans don't support the generic "Make an Offer" sheet because it requires
+  // loan dates (start + due) which are chosen inside the LoanBookingSheet.
+  // Negotiation for loans happens via the booking chat after creating the booking.
   return (
     <>
-      <View className={hasPriceToNegotiate ? 'flex-row gap-2' : ''}>
-        <Pressable
-          onPress={() => setShowSheet(true)}
-          className={`flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80 ${hasPriceToNegotiate ? 'flex-1' : 'w-full'}`}
-        >
-          <Ionicons name="arrow-forward-circle-outline" size={20} color="#FFFFFF" />
-          <Text className="text-base font-semibold text-primary-foreground">Borrow</Text>
-        </Pressable>
-
-        {hasPriceToNegotiate && (
-          <Pressable
-            onPress={() => setShowOfferSheet(true)}
-            className="flex-1 flex-row items-center justify-center gap-2 py-3.5 rounded-xl border-2 border-primary active:opacity-80"
-          >
-            <Ionicons name="pricetag-outline" size={18} color="#660000" />
-            <Text className="text-base font-semibold text-primary">Offer</Text>
-          </Pressable>
-        )}
-      </View>
+      <Pressable
+        onPress={() => setShowSheet(true)}
+        className="w-full flex-row items-center justify-center gap-2 py-3.5 rounded-xl bg-primary active:opacity-80"
+      >
+        <Ionicons name="arrow-forward-circle-outline" size={20} color="#FFFFFF" />
+        <Text className="text-base font-semibold text-primary-foreground">Borrow</Text>
+      </Pressable>
 
       <LoanBookingSheet
         visible={showSheet}
         offering={offering}
         onClose={() => setShowSheet(false)}
       />
-
-      {hasPriceToNegotiate && (
-        <MakeOfferSheet
-          visible={showOfferSheet}
-          offering={offering}
-          onClose={() => setShowOfferSheet(false)}
-        />
-      )}
     </>
   );
 }

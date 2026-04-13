@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   View,
   FlatList,
@@ -13,6 +13,7 @@ import { Text } from '@/components/ui/text';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { useMyBookings } from '@/hooks/queries/use-bookings';
 import { useRefreshOnFocus } from '@/hooks/queries/use-refresh-on-focus';
+import { OfferingBookingGroup, groupBookingsByOffering } from '@/components/pages/bookings/offering-booking-group';
 import type { BookingListItem } from '@/types/booking';
 
 // ============================================================================
@@ -38,11 +39,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   overdue: { label: 'Overdue', color: '#DC2626', bg: 'bg-red-100' },
 };
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
 // ============================================================================
 // Component
 // ============================================================================
@@ -54,6 +50,14 @@ export default function MyBookingsScreen() {
   const role = activeTab === 'all' ? undefined : activeTab;
   const { data: bookings, isLoading, isFetching, error, refetch } = useMyBookings(role);
   useRefreshOnFocus(refetch);
+
+  const isProviderTab = activeTab === 'provider';
+
+  // Group bookings by offering for the provider tab
+  const offeringGroups = useMemo(
+    () => (isProviderTab && bookings ? groupBookingsByOffering(bookings) : []),
+    [isProviderTab, bookings]
+  );
 
   const handleBookingPress = (booking: BookingListItem) => {
     router.push({
@@ -99,7 +103,30 @@ export default function MyBookingsScreen() {
               <Text className="text-base font-semibold text-primary-foreground">Retry</Text>
             </Pressable>
           </View>
+        ) : isProviderTab ? (
+          /* Provider view: grouped by offering */
+          <FlatList
+            data={offeringGroups}
+            keyExtractor={(item) => item.offeringId}
+            renderItem={({ item }) => <OfferingBookingGroup group={item} />}
+            contentContainerStyle={{ padding: 16, gap: 12 }}
+            refreshControl={
+              <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => refetch()} />
+            }
+            ListEmptyComponent={
+              <View className="flex-1 justify-center items-center p-6 gap-4 mt-16">
+                <View className="w-20 h-20 rounded-full bg-muted items-center justify-center">
+                  <Ionicons name="storefront-outline" size={40} color="#9CA3AF" />
+                </View>
+                <Text className="text-xl font-bold text-center">No bookings yet</Text>
+                <Text className="text-base text-center text-muted-foreground">
+                  Bookings from customers will appear here.
+                </Text>
+              </View>
+            }
+          />
         ) : (
+          /* Customer / All view: flat list */
           <FlatList
             data={bookings ?? []}
             keyExtractor={(item) => item.id}
@@ -112,10 +139,7 @@ export default function MyBookingsScreen() {
             )}
             contentContainerStyle={{ padding: 16, gap: 12 }}
             refreshControl={
-              <RefreshControl
-                refreshing={isFetching && !isLoading}
-                onRefresh={() => refetch()}
-              />
+              <RefreshControl refreshing={isFetching && !isLoading} onRefresh={() => refetch()} />
             }
             ListEmptyComponent={
               <View className="flex-1 justify-center items-center p-6 gap-4 mt-16">
@@ -124,9 +148,7 @@ export default function MyBookingsScreen() {
                 </View>
                 <Text className="text-xl font-bold text-center">No bookings yet</Text>
                 <Text className="text-base text-center text-muted-foreground">
-                  {activeTab === 'provider'
-                    ? 'Bookings from customers will appear here.'
-                    : 'Your bookings will appear here once you place one.'}
+                  Your bookings will appear here once you place one.
                 </Text>
               </View>
             }
@@ -168,6 +190,49 @@ function TabButton({
   );
 }
 
+const CATEGORY_CONFIG: Record<string, { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  product: { label: 'Order', color: '#3B82F6', bg: 'bg-blue-100', icon: 'bag-outline' },
+  service: { label: 'Appointment', color: '#10B981', bg: 'bg-green-100', icon: 'time-outline' },
+  event: { label: 'Event', color: '#F59E0B', bg: 'bg-amber-100', icon: 'calendar-outline' },
+  loan: { label: 'Loan', color: '#8B5CF6', bg: 'bg-purple-100', icon: 'swap-horizontal-outline' },
+};
+
+function getListCategory(items: BookingListItem['booking_items']): string {
+  if (items.some((i) => i.is_loan)) return 'loan';
+  const cat = items[0]?.snapshot_category;
+  if (cat === 'service') return 'service';
+  if (cat === 'event') return 'event';
+  return 'product';
+}
+
+function getContextLine(category: string, item: BookingListItem['booking_items'][0]): string | null {
+  if (!item) return null;
+  if (category === 'service' || category === 'event') {
+    const date = item.instance_date
+      ? new Date(item.instance_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      : null;
+    const time = item.instance_start_time ? item.instance_start_time.slice(0, 5) : null;
+    if (date && time) return `${date} at ${time}`;
+    if (date) return date;
+    return null;
+  }
+  if (category === 'loan') {
+    if (item.loan_returned_at) return 'Returned';
+    if (item.loan_due_date) {
+      const due = new Date(item.loan_due_date);
+      const now = new Date();
+      const daysLeft = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysLeft < 0) return `Overdue by ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? 's' : ''}`;
+      if (daysLeft === 0) return 'Due today';
+      if (daysLeft === 1) return 'Due tomorrow';
+      return `Due in ${daysLeft} days`;
+    }
+    return null;
+  }
+  // Product: show item count
+  return null;
+}
+
 function BookingCard({
   booking,
   userId,
@@ -183,7 +248,10 @@ function BookingCard({
   const firstItem = booking.booking_items[0];
   const communityName = booking.booking_community_snapshots?.snapshot_community_name;
 
-  // Build items summary text
+  const category = getListCategory(booking.booking_items);
+  const catConfig = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.product;
+  const contextLine = getContextLine(category, firstItem);
+
   const itemsSummary =
     itemCount === 1
       ? firstItem?.snapshot_title || 'Booking'
@@ -204,16 +272,25 @@ function BookingCard({
           />
         ) : (
           <View className="w-14 h-14 rounded-lg bg-muted items-center justify-center">
-            <Ionicons name="receipt-outline" size={24} color="#9CA3AF" />
+            <Ionicons name={catConfig.icon} size={24} color={catConfig.color} />
           </View>
         )}
 
         {/* Info */}
         <View className="flex-1 gap-1">
           <View className="flex-row items-center justify-between">
-            <Text className="text-base font-semibold" numberOfLines={1}>
-              #{booking.booking_number}
-            </Text>
+            <View className="flex-row items-center gap-2 flex-1 mr-2">
+              {/* Category badge */}
+              <View className={`flex-row items-center gap-1 px-2 py-0.5 rounded-full ${catConfig.bg}`}>
+                <Ionicons name={catConfig.icon} size={10} color={catConfig.color} />
+                <Text className="text-[10px] font-semibold" style={{ color: catConfig.color }}>
+                  {catConfig.label}
+                </Text>
+              </View>
+              <Text className="text-sm font-semibold text-muted-foreground" numberOfLines={1}>
+                #{booking.booking_number}
+              </Text>
+            </View>
             {/* Status badge */}
             <View className={`px-2 py-0.5 rounded-full ${statusConfig.bg}`}>
               <Text className="text-xs font-semibold" style={{ color: statusConfig.color }}>
@@ -222,11 +299,23 @@ function BookingCard({
             </View>
           </View>
 
-          <Text className="text-sm text-muted-foreground" numberOfLines={1}>
+          <Text className="text-base font-semibold" numberOfLines={1}>
             {itemsSummary}
           </Text>
 
-          <View className="flex-row items-center justify-between mt-1">
+          {/* Context line: date/time for services, due date for loans */}
+          {contextLine && (
+            <View className="flex-row items-center gap-1">
+              <Ionicons
+                name={category === 'loan' ? 'timer-outline' : 'calendar-outline'}
+                size={12}
+                color="#6B7280"
+              />
+              <Text className="text-xs text-muted-foreground">{contextLine}</Text>
+            </View>
+          )}
+
+          <View className="flex-row items-center justify-between mt-0.5">
             <View className="flex-row items-center gap-1">
               {isProvider && (
                 <View className="flex-row items-center gap-1 mr-2">
@@ -241,13 +330,11 @@ function BookingCard({
               )}
             </View>
             <Text className="text-sm font-bold">
-              {formatCurrency(booking.total_amount, booking.currency_code)}
+              {booking.total_amount > 0
+                ? formatCurrency(booking.total_amount, booking.currency_code)
+                : 'Free'}
             </Text>
           </View>
-
-          <Text className="text-xs text-muted-foreground">
-            {formatDate(booking.created_at)}
-          </Text>
         </View>
 
         {/* Chevron */}

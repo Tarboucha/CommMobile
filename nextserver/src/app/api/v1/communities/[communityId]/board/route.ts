@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import {
   successResponse,
@@ -165,9 +166,8 @@ export const GET = withAuth(async (_user, request: NextRequest, params) => {
       data,
       pagination: { has_more, next_cursor, limit },
     });
-  } catch (error) {
-    console.error("Error fetching board:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

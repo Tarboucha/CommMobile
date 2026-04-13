@@ -9,15 +9,8 @@ import { withSecureAuth } from "@/lib/utils/api-route-helper"
  *
  * Uses withSecureAuth (getUser) for mobile JWT validation with Authorization header
  */
-export const GET = withSecureAuth(async (user, request: NextRequest) => {
-  // Debug: Log Authorization header to verify it's being received
-  const authHeader = request.headers.get('authorization');
-  console.log('[/api/auth/me] Authorization header:', authHeader ? `Present (${authHeader.substring(0, 20)}...)` : 'MISSING');
-
-  // The user object from withSecureAuth already contains profile with addresses
-  return successResponse({
-    profile: user,
-  })
+export const GET = withSecureAuth(async (user, _request: NextRequest) => {
+  return successResponse({ profile: user });
 })
 
 // Catch unsupported methods

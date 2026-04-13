@@ -62,7 +62,7 @@ export const POST = withAuth(async (user, request: NextRequest) => {
     let conversationId: string;
     try {
       const result = await prisma.$queryRaw<[{ create_direct_conversation: string }]>`
-        SELECT public.create_direct_conversation(${other_profile_id}::uuid) AS create_direct_conversation
+        SELECT public.create_direct_conversation(${other_profile_id}::uuid, ${user.id}::uuid) AS create_direct_conversation
       `;
       conversationId = result[0].create_direct_conversation;
     } catch (err) {

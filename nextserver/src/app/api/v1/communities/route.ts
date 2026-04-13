@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import {
   successResponse,
@@ -77,9 +78,8 @@ export const GET = withAuth(async (user, request: NextRequest) => {
         limit
       )
     );
-  } catch (error) {
-    console.error("Error fetching communities:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 
@@ -115,9 +115,8 @@ export const POST = withAuth(async (user, request: NextRequest) => {
       undefined,
       201
     );
-  } catch (error) {
-    console.error("Error creating community:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

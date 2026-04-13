@@ -1,8 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { assertOfferingOwner, assertScheduleOwner } from "@/lib/guards/assert-offering-owner";
+import { assertCommunityMember } from "@/lib/guards/assert-community-member";
 import { NotFoundError, ValidationError } from "@/lib/errors/domain-errors";
+import { decodeCursor, buildPaginatedResponse } from "@/lib/utils/pagination";
 import { dateFromYMD, timeFromHHMM, formatTime } from "@/lib/utils/date-helpers";
-import type { CreateScheduleInput, UpdateScheduleInput } from "@/lib/validations/offering";
+import type { CreateOfferingInput, CreateScheduleInput, UpdateScheduleInput, OfferingFilterInput } from "@/lib/validations/offering";
 
 // ============================================================================
 // Offering CRUD
@@ -116,6 +118,76 @@ export async function deleteSchedule(
 
   await prisma.availability_schedules.delete({
     where: { id: scheduleId },
+  });
+}
+
+// ============================================================================
+// Time slots
+// ============================================================================
+
+// ============================================================================
+// Community-scoped offerings
+// ============================================================================
+
+export async function listCommunityOfferings(
+  communityId: string,
+  filters: OfferingFilterInput
+) {
+  const { category, transaction_type, limit, after } = filters;
+
+  const where: any = {
+    community_id: communityId,
+    deleted_at: null,
+    status: "active",
+  };
+
+  if (category) where.category = category;
+  if (transaction_type) where.transaction_type = transaction_type;
+
+  if (after) {
+    const cursor = decodeCursor(after);
+    if (cursor) {
+      where.OR = [
+        { created_at: { lt: new Date(cursor.created_at) } },
+        { created_at: { equals: new Date(cursor.created_at) }, id: { lt: cursor.id } },
+      ];
+    }
+  }
+
+  const offerings = await prisma.offerings.findMany({
+    where,
+    include: {
+      profiles: { select: { id: true, first_name: true, last_name: true, avatar_url: true } },
+    },
+    orderBy: [{ created_at: "desc" }, { id: "desc" }],
+    take: limit + 1,
+  });
+
+  const shaped = offerings.map((o) => ({
+    ...o,
+    created_at: o.created_at?.toISOString() ?? null,
+  }));
+
+  return buildPaginatedResponse(shaped, limit);
+}
+
+export async function createCommunityOffering(
+  communityId: string,
+  userId: string,
+  data: CreateOfferingInput
+) {
+  await assertCommunityMember(communityId, userId, {
+    requireCanPost: true,
+  });
+
+  return prisma.offerings.create({
+    data: {
+      ...data,
+      community_id: communityId,
+      provider_id: userId,
+      status: "active",
+      version: 1,
+    },
   });
 }
 

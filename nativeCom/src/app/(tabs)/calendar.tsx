@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Text } from '@/components/ui/text';
+import { useMemo, useState } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { Calendar } from '@/components/ui/calendar';
+import { CalendarDayBookings } from '@/components/pages/calendar/calendar-day-bookings';
+import { useCalendarBookings } from '@/hooks/queries/use-calendar-bookings';
 
 function getTodayString(): string {
   const d = new Date();
@@ -13,6 +13,25 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(getTodayString());
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
+  const { data, isLoading } = useCalendarBookings(currentMonth);
+
+  // Convert event_counts from Record to Map for Calendar component
+  const eventCounts = useMemo(() => {
+    if (!data?.event_counts) return undefined;
+    const map = new Map<string, number>();
+    for (const [date, count] of Object.entries(data.event_counts)) {
+      map.set(date, count);
+    }
+    return map;
+  }, [data?.event_counts]);
+
+  // Get entries for selected date
+  const dayEntries = data?.dates?.[selectedDate] ?? [];
+
+  // Count for header
+  const todayStr = getTodayString();
+  const todayCount = data?.event_counts?.[todayStr] ?? 0;
+
   return (
     <View className="flex-1 bg-background">
       <Calendar
@@ -20,18 +39,17 @@ export default function CalendarScreen() {
         onDateSelect={setSelectedDate}
         currentMonth={currentMonth}
         onMonthChange={setCurrentMonth}
-        hideStats
-        renderDayContent={() => (
-          <View className="flex-1 items-center justify-center p-6">
-            <Ionicons name="calendar-outline" size={48} color="#78716C" />
-            <Text className="text-lg font-semibold text-foreground mt-4 mb-2">
-              No Events
-            </Text>
-            <Text className="text-sm text-muted-foreground text-center">
-              Your events and schedules across all communities will appear here.
-            </Text>
-          </View>
-        )}
+        eventCounts={eventCounts}
+        todaySlotCount={todayCount}
+        renderDayContent={() =>
+          isLoading ? (
+            <View className="flex-1 items-center justify-center p-6">
+              <ActivityIndicator size="large" />
+            </View>
+          ) : (
+            <CalendarDayBookings entries={dayEntries} selectedDate={selectedDate} />
+          )
+        }
       />
     </View>
   );

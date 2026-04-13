@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   View,
   FlatList,
@@ -12,8 +13,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { useBookingChat } from '@/hooks/queries/use-booking-chat';
+import { useBookingDetail } from '@/hooks/queries/use-bookings';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { ChatMessageRenderer } from '@/components/chat/chat-message';
+import { CounterOfferBar } from '@/components/chat/counter-offer-bar';
 
 export default function BookingChatScreen() {
   const { bookingId, bookingNumber } = useLocalSearchParams<{
@@ -22,6 +25,7 @@ export default function BookingChatScreen() {
   }>();
   const insets = useSafeAreaInsets();
   const userId = useAuthStore((s) => s.user?.id ?? null);
+  const [showOfferBar, setShowOfferBar] = useState(false);
 
   const {
     messages,
@@ -35,6 +39,13 @@ export default function BookingChatScreen() {
     loadMore,
     handleSend,
   } = useBookingChat(bookingId!, userId);
+
+  // Fetch booking to check if negotiation is possible
+  const { data: booking } = useBookingDetail(bookingId);
+  const isPending = booking?.booking_status === 'pending';
+  const hasPrice = (booking?.total_amount ?? 0) > 0;
+  const canNegotiate = isPending && hasPrice;
+  const currency = booking?.currency_code ?? 'EUR';
 
   if (!bookingId) {
     return (
@@ -81,6 +92,7 @@ export default function BookingChatScreen() {
                 isOwn={item.sender_id === userId}
                 bookingId={bookingId}
                 userId={userId!}
+                onCounter={() => setShowOfferBar(true)}
               />
             )}
             contentContainerStyle={{ paddingVertical: 12 }}
@@ -101,36 +113,55 @@ export default function BookingChatScreen() {
           />
         )}
 
-        {/* Input bar */}
-        <View
-          className="flex-row items-end px-4 py-3 border-t border-border bg-card"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-        >
-          <TextInput
-            className="flex-1 bg-background rounded-2xl px-4 py-2 text-sm text-foreground mr-2 max-h-24"
-            placeholder="Message..."
-            placeholderTextColor="#78716C"
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            editable={!isSending}
-            onSubmitEditing={handleSend}
-            submitBehavior="newline"
+        {/* Counter-offer bar (replaces input when active) */}
+        {showOfferBar ? (
+          <CounterOfferBar
+            bookingId={bookingId}
+            currency={currency}
+            onClose={() => setShowOfferBar(false)}
           />
-          <Pressable
-            className={`w-10 h-10 rounded-full justify-center items-center ${
-              inputText.trim() && !isSending ? 'bg-primary' : 'bg-muted'
-            }`}
-            onPress={handleSend}
-            disabled={!inputText.trim() || isSending}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={inputText.trim() && !isSending ? '#FFFFFF' : '#78716C'}
-            />
-          </Pressable>
-        </View>
+        ) : (
+          <View style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+            {/* "Make an Offer" chip (when negotiation is possible) */}
+            {canNegotiate && (
+              <Pressable
+                className="flex-row items-center gap-1.5 px-4 py-2 mx-4 mb-1 rounded-full bg-primary/10 self-start"
+                onPress={() => setShowOfferBar(true)}
+              >
+                <Ionicons name="pricetag-outline" size={14} color="#660000" />
+                <Text className="text-xs font-semibold text-primary">Make an Offer</Text>
+              </Pressable>
+            )}
+
+            {/* Text input bar */}
+            <View className="flex-row items-end px-4 py-3 border-t border-border bg-card">
+              <TextInput
+                className="flex-1 bg-background rounded-2xl px-4 py-2 text-sm text-foreground mr-2 max-h-24"
+                placeholder="Message..."
+                placeholderTextColor="#78716C"
+                value={inputText}
+                onChangeText={setInputText}
+                multiline
+                editable={!isSending}
+                onSubmitEditing={handleSend}
+                submitBehavior="newline"
+              />
+              <Pressable
+                className={`w-10 h-10 rounded-full justify-center items-center ${
+                  inputText.trim() && !isSending ? 'bg-primary' : 'bg-muted'
+                }`}
+                onPress={handleSend}
+                disabled={!inputText.trim() || isSending}
+              >
+                <Ionicons
+                  name="send"
+                  size={18}
+                  color={inputText.trim() && !isSending ? '#FFFFFF' : '#78716C'}
+                />
+              </Pressable>
+            </View>
+          </View>
+        )}
       </KeyboardAvoidingView>
     </>
   );

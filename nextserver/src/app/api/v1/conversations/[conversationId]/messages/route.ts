@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { withAuth } from "@/lib/utils/api-route-helper";
 import {
   successResponse,
@@ -81,9 +82,8 @@ export const GET = withAuth(
       });
 
       return successResponse(buildPaginatedResponse(shaped, limit));
-    } catch (error) {
-      console.error("Error fetching messages:", error);
-      return ApiErrors.serverError();
+    } catch (err) {
+      return handleServiceError(err);
     }
   }
 );
@@ -128,9 +128,8 @@ export const POST = withAuth(
 
       const { profiles, ...rest } = message;
       return successResponse({ message: { ...rest, sender: profiles } }, undefined, 201);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      return ApiErrors.serverError();
+    } catch (err) {
+      return handleServiceError(err);
     }
   }
 );

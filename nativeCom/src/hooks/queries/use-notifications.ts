@@ -19,5 +19,7 @@ export function useUnreadCount() {
     queryKey: queryKeys.notifications.unreadCount(),
     queryFn: getUnreadCount,
     enabled: !!user,
+    staleTime: 30 * 1000, // 30s — multiple components share one cached value
+    refetchInterval: 60 * 1000, // poll every 60s as fallback (socket handles real-time)
   });
 }

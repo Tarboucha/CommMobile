@@ -1,5 +1,6 @@
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors, handleUnsupportedMethod } from "@/lib/utils/api-response";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -14,9 +15,8 @@ export const PATCH = withAuth(async (user) => {
     });
 
     return successResponse({ message: "All notifications marked as read" });
-  } catch (error) {
-    console.error("Failed to mark all notifications as read:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

@@ -1,5 +1,6 @@
 import { withAuth } from "@/lib/utils/api-route-helper";
 import { successResponse, ApiErrors, handleUnsupportedMethod } from "@/lib/utils/api-response";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
 import { prisma } from "@/lib/prisma";
 import type { NotificationUnreadCountResponse } from "@/types/notification";
 
@@ -16,9 +17,8 @@ export const GET = withAuth(async (user) => {
     return successResponse({
       unread_count: count,
     });
-  } catch (error) {
-    console.error("Error fetching unread notifications count:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

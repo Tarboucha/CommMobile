@@ -15,16 +15,33 @@ import type { BookingCreateInput } from "@/lib/validations/booking";
 import type { User } from "@/types/auth";
 
 // ============================================================================
-// Status transition rules
+// Status transition rules (category-aware)
 // ============================================================================
 
 type BookingStatus = string;
+type BookingCategory = "product" | "service" | "event" | "loan";
 
-const PROVIDER_TRANSITIONS: Record<string, BookingStatus[]> = {
+// Product: full pipeline (prepare → ready → complete)
+const PRODUCT_PROVIDER_TRANSITIONS: Record<string, BookingStatus[]> = {
   pending: ["confirmed", "cancelled"],
-  confirmed: ["in_progress", "loaned_out", "cancelled"],
+  confirmed: ["in_progress", "cancelled"],
   in_progress: ["ready", "cancelled"],
   ready: ["completed"],
+};
+
+// Service: simplified (confirm → complete directly)
+const SERVICE_PROVIDER_TRANSITIONS: Record<string, BookingStatus[]> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["completed", "cancelled"],
+};
+
+// Event: same as service
+const EVENT_PROVIDER_TRANSITIONS = SERVICE_PROVIDER_TRANSITIONS;
+
+// Loan: unique flow (confirm → loan out, return is via separate endpoint)
+const LOAN_PROVIDER_TRANSITIONS: Record<string, BookingStatus[]> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["loaned_out", "cancelled"],
   loaned_out: [],
   returned: ["completed"],
 };
@@ -33,6 +50,15 @@ const CUSTOMER_TRANSITIONS: Record<string, BookingStatus[]> = {
   pending: ["cancelled"],
   confirmed: ["cancelled"],
 };
+
+function getProviderTransitions(category: BookingCategory): Record<string, BookingStatus[]> {
+  switch (category) {
+    case "service": return SERVICE_PROVIDER_TRANSITIONS;
+    case "event": return EVENT_PROVIDER_TRANSITIONS;
+    case "loan": return LOAN_PROVIDER_TRANSITIONS;
+    default: return PRODUCT_PROVIDER_TRANSITIONS;
+  }
+}
 
 // ============================================================================
 // Create booking
@@ -214,7 +240,27 @@ export async function listBookings(userId: string, role?: string) {
     where,
     include: {
       booking_items: {
-        select: { id: true, snapshot_title: true, snapshot_image_url: true, quantity: true },
+        select: {
+          id: true,
+          offering_id: true,
+          snapshot_title: true,
+          snapshot_image_url: true,
+          snapshot_category: true,
+          quantity: true,
+          is_loan: true,
+          instance_date: true,
+          instance_start_time: true,
+          instance_end_time: true,
+          loan_due_date: true,
+          loan_returned_at: true,
+        },
+      },
+      booking_customer_snapshots: {
+        select: {
+          snapshot_display_name: true,
+          snapshot_first_name: true,
+          snapshot_last_name: true,
+        },
       },
       booking_community_snapshots: {
         select: { snapshot_community_name: true },
@@ -276,11 +322,21 @@ export async function updateBookingStatus(
   newStatus: string,
   cancellationReason?: string
 ) {
-  const { booking, isProvider, isCustomer } = await assertBookingParty(bookingId, userId);
+  const { booking, isProvider } = await assertBookingParty(bookingId, userId);
+
+  // Determine booking category from the first item
+  const firstItem = await prisma.booking_items.findFirst({
+    where: { booking_id: bookingId },
+    select: { snapshot_category: true, is_loan: true },
+  });
+
+  const category: BookingCategory = firstItem?.is_loan
+    ? "loan"
+    : (firstItem?.snapshot_category as BookingCategory) ?? "product";
 
   const currentStatus = booking.booking_status as string;
   const allowedTransitions = isProvider
-    ? PROVIDER_TRANSITIONS[currentStatus]
+    ? getProviderTransitions(category)[currentStatus]
     : CUSTOMER_TRANSITIONS[currentStatus];
 
   if (!allowedTransitions || !allowedTransitions.includes(newStatus)) {

@@ -111,10 +111,23 @@ export interface BookingListItem {
   cancelled_at: string | null;
   booking_items: {
     id: string;
+    offering_id: string;
     snapshot_title: string;
     snapshot_image_url: string | null;
+    snapshot_category: string;
     quantity: number;
+    is_loan: boolean;
+    instance_date: string | null;
+    instance_start_time: string | null;
+    instance_end_time: string | null;
+    loan_due_date: string | null;
+    loan_returned_at: string | null;
   }[];
+  booking_customer_snapshots: {
+    snapshot_display_name: string | null;
+    snapshot_first_name: string | null;
+    snapshot_last_name: string | null;
+  } | null;
   booking_community_snapshots: {
     snapshot_community_name: string;
   } | null;
@@ -287,4 +300,27 @@ export interface OfferActionPayload {
   offered_amount?: number;
   note?: string;
   offer_id?: string;
+}
+
+// ============================================================================
+// Calendar
+// ============================================================================
+
+export interface CalendarEntry {
+  booking_id: string;
+  booking_number: string;
+  title: string;
+  category: string;
+  status: string;
+  time: string | null;
+  role: 'customer' | 'provider';
+  other_party_name: string;
+  is_loan: boolean;
+  loan_due_date: string | null;
+  loan_returned_at: string | null;
+}
+
+export interface CalendarResponse {
+  dates: Record<string, CalendarEntry[]>;
+  event_counts: Record<string, number>;
 }

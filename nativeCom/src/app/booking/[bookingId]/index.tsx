@@ -51,12 +51,52 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; 
   overdue: { label: 'Overdue', color: '#DC2626', bg: 'bg-red-100', icon: 'alert-circle-outline' },
 };
 
-const DEFAULT_STATUS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'ready', 'completed'];
-const LOAN_STATUS_STEPS: BookingStatus[] = ['pending', 'confirmed', 'loaned_out', 'returned', 'completed'];
+// Category-specific status timelines
+const PRODUCT_STEPS: BookingStatus[] = ['pending', 'confirmed', 'in_progress', 'ready', 'completed'];
+const SERVICE_STEPS: BookingStatus[] = ['pending', 'confirmed', 'completed'];
+const EVENT_STEPS: BookingStatus[] = ['pending', 'confirmed', 'completed'];
+const LOAN_STEPS: BookingStatus[] = ['pending', 'confirmed', 'loaned_out', 'returned'];
+
+type BookingCategory = 'product' | 'service' | 'event' | 'loan';
+
+function getBookingCategory(items: BookingItemDetail[]): BookingCategory {
+  if (items.some((i) => i.is_loan)) return 'loan';
+  const cat = items[0]?.snapshot_category;
+  if (cat === 'service') return 'service';
+  if (cat === 'event') return 'event';
+  return 'product';
+}
+
+function getStatusSteps(category: BookingCategory): BookingStatus[] {
+  switch (category) {
+    case 'service': return SERVICE_STEPS;
+    case 'event': return EVENT_STEPS;
+    case 'loan': return LOAN_STEPS;
+    default: return PRODUCT_STEPS;
+  }
+}
+
+const CATEGORY_LABELS: Record<BookingCategory, { label: string; color: string; bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  product: { label: 'Order', color: '#3B82F6', bg: 'bg-blue-100', icon: 'bag-outline' },
+  service: { label: 'Appointment', color: '#10B981', bg: 'bg-green-100', icon: 'time-outline' },
+  event: { label: 'Event', color: '#F59E0B', bg: 'bg-amber-100', icon: 'calendar-outline' },
+  loan: { label: 'Loan', color: '#8B5CF6', bg: 'bg-purple-100', icon: 'swap-horizontal-outline' },
+};
 
 function formatLoanDate(value: string | null | undefined): string {
   if (!value) return '—';
   return new Date(value).toLocaleDateString();
+}
+
+function formatBookingDate(dateStr: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function formatTimeSlot(start: string | null, end: string | null): string {
+  if (!start || !end) return '';
+  return `${start.slice(0, 5)} – ${end.slice(0, 5)}`;
 }
 
 // ============================================================================
@@ -84,12 +124,23 @@ export default function BookingDetailScreen() {
     [booking]
   );
 
-  const isLoanBooking = useMemo(
-    () => !!booking?.booking_items?.some((item) => item.is_loan),
+  const bookingCategory = useMemo(
+    () => booking ? getBookingCategory(booking.booking_items) : 'product' as BookingCategory,
     [booking]
   );
 
-  const statusSteps = isLoanBooking ? LOAN_STATUS_STEPS : DEFAULT_STATUS_STEPS;
+  const isLoanBooking = bookingCategory === 'loan';
+  const isServiceBooking = bookingCategory === 'service';
+  const isEventBooking = bookingCategory === 'event';
+  const statusSteps = getStatusSteps(bookingCategory);
+  const categoryInfo = CATEGORY_LABELS[bookingCategory];
+
+  // First item's date/time info (for services/events header)
+  const firstItem = booking?.booking_items?.[0];
+  const appointmentDate = firstItem?.instance_date ? formatBookingDate(firstItem.instance_date) : null;
+  const appointmentTime = firstItem?.instance_start_time && firstItem?.instance_end_time
+    ? formatTimeSlot(firstItem.instance_start_time, firstItem.instance_end_time)
+    : null;
 
   // Status update handler
   const handleStatusUpdate = useCallback((
@@ -231,7 +282,7 @@ export default function BookingDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          title: `#${booking.booking_number}`,
+          title: isServiceBooking ? 'Appointment' : isEventBooking ? 'Event' : isLoanBooking ? 'Loan' : `Order #${booking.booking_number}`,
           headerRight: () => (
             <Pressable
               className="mr-2"
@@ -265,6 +316,34 @@ export default function BookingDetailScreen() {
             <Text className="text-xl font-bold" style={{ color: statusConfig?.color }}>
               {statusConfig?.label}
             </Text>
+
+            {/* Category badge */}
+            <View className={`flex-row items-center gap-1.5 px-3 py-1 rounded-full ${categoryInfo.bg}`}>
+              <Ionicons name={categoryInfo.icon} size={14} color={categoryInfo.color} />
+              <Text className="text-xs font-semibold" style={{ color: categoryInfo.color }}>
+                {categoryInfo.label}
+              </Text>
+            </View>
+
+            {/* Appointment/event date+time (services + events) */}
+            {(isServiceBooking || isEventBooking) && appointmentDate && (
+              <View className="items-center gap-0.5">
+                <Text className="text-sm font-semibold text-foreground">{appointmentDate}</Text>
+                {appointmentTime && (
+                  <Text className="text-xs text-muted-foreground">{appointmentTime}</Text>
+                )}
+              </View>
+            )}
+
+            {/* Loan dates */}
+            {isLoanBooking && firstItem && (
+              <View className="items-center gap-0.5">
+                <Text className="text-sm font-semibold text-foreground">
+                  Pickup {formatLoanDate(firstItem.loan_start_date)} → Return by {formatLoanDate(firstItem.loan_due_date)}
+                </Text>
+              </View>
+            )}
+
             {booking.booking_status === 'cancelled' && booking.cancellation_reason && (
               <Text className="text-sm text-center" style={{ color: statusConfig?.color }}>
                 {booking.cancellation_reason}
@@ -398,17 +477,24 @@ export default function BookingDetailScreen() {
           )}
 
           {/* Payment Summary */}
-          <Section title="Payment">
+          <Section title={isEventBooking ? 'Ticket' : 'Payment'}>
             <View className="p-4 rounded-lg bg-card gap-2">
               <Row label="Method" value={booking.payment_method === 'cash' ? 'Cash' : 'External'} />
-              <Row label="Subtotal" value={formatCurrency(booking.subtotal_amount, booking.currency_code)} />
-              {booking.service_fee_amount > 0 && (
-                <Row label="Service Fee" value={formatCurrency(booking.service_fee_amount, booking.currency_code)} />
+              <Row
+                label={isServiceBooking ? 'Service fee' : isEventBooking ? 'Ticket price' : 'Subtotal'}
+                value={booking.subtotal_amount > 0
+                  ? formatCurrency(booking.subtotal_amount, booking.currency_code)
+                  : 'Free'}
+              />
+              {!isServiceBooking && !isEventBooking && booking.service_fee_amount > 0 && (
+                <Row label="Platform Fee" value={formatCurrency(booking.service_fee_amount, booking.currency_code)} />
               )}
               <View className="border-t border-border pt-2 mt-1 flex-row justify-between">
                 <Text className="text-base font-bold">Total</Text>
                 <Text className="text-base font-bold text-primary">
-                  {formatCurrency(booking.total_amount, booking.currency_code)}
+                  {booking.total_amount > 0
+                    ? formatCurrency(booking.total_amount, booking.currency_code)
+                    : 'Free'}
                 </Text>
               </View>
               {booking.deposit_total > 0 && (
@@ -421,6 +507,11 @@ export default function BookingDetailScreen() {
                     label="Deposit Status"
                     value={depositStatusLabel(booking.deposit_status)}
                   />
+                  {isLoanBooking && booking.deposit_status === 'held' && (
+                    <Text className="text-xs text-muted-foreground italic mt-1">
+                      Your deposit will be refunded after the item is returned.
+                    </Text>
+                  )}
                 </View>
               )}
             </View>
@@ -451,11 +542,12 @@ export default function BookingDetailScreen() {
           {/* Timestamps */}
           <Section title="Timeline">
             <View className="p-3 rounded-lg bg-card gap-2">
-              <Row label="Created" value={new Date(booking.created_at).toLocaleString()} />
+              <Row label={isEventBooking ? 'RSVP' : 'Booked'} value={new Date(booking.created_at).toLocaleString()} />
               {booking.confirmed_at && (
                 <Row label="Confirmed" value={new Date(booking.confirmed_at).toLocaleString()} />
               )}
-              {booking.ready_at && (
+              {/* Product-only steps */}
+              {!isServiceBooking && !isEventBooking && !isLoanBooking && booking.ready_at && (
                 <Row label="Ready" value={new Date(booking.ready_at).toLocaleString()} />
               )}
               {booking.completed_at && (
@@ -472,9 +564,9 @@ export default function BookingDetailScreen() {
         {!isFinal && (
           <ActionBar
             status={booking.booking_status}
+            category={bookingCategory}
             isProvider={!!isProvider}
             isCustomer={!!isCustomer}
-            isLoan={isLoanBooking}
             isUpdating={isUpdating}
             onAccept={() => handleStatusUpdate('confirmed')}
             onRefuse={handleRefuse}
@@ -573,9 +665,9 @@ function StatusTimeline({
 
 function ActionBar({
   status,
+  category,
   isProvider,
   isCustomer,
-  isLoan,
   isUpdating,
   onAccept,
   onRefuse,
@@ -586,9 +678,9 @@ function ActionBar({
   onCancel,
 }: {
   status: BookingStatus;
+  category: BookingCategory;
   isProvider: boolean;
   isCustomer: boolean;
-  isLoan: boolean;
   isUpdating: boolean;
   onAccept: () => void;
   onRefuse: () => void;
@@ -614,12 +706,19 @@ function ActionBar({
         );
         break;
       case 'confirmed':
-        if (isLoan) {
+        if (category === 'loan') {
           buttons.push(
             { label: 'Mark Loaned Out', onPress: onMarkLoanedOut, variant: 'primary', icon: 'arrow-forward-circle' },
             { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
           );
+        } else if (category === 'service' || category === 'event') {
+          // Services/events skip in_progress + ready → go directly to complete
+          buttons.push(
+            { label: 'Complete', onPress: onComplete, variant: 'primary', icon: 'checkmark-done-circle' },
+            { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
+          );
         } else {
+          // Products: full pipeline
           buttons.push(
             { label: 'Start', onPress: onStart, variant: 'primary', icon: 'play-circle' },
             { label: 'Cancel', onPress: onCancel, variant: 'danger', icon: 'close-circle' },
@@ -638,7 +737,7 @@ function ActionBar({
         );
         break;
       case 'loaned_out':
-        // Individual return buttons live on the item cards (supports per-item returns)
+        // Individual return buttons live on the item cards
         break;
     }
   }

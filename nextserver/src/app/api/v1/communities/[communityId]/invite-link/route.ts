@@ -1,61 +1,22 @@
 import { NextRequest } from "next/server";
-import { randomUUID } from "crypto";
 import { withAuth } from "@/lib/utils/api-route-helper";
-import {
-  successResponse,
-  handleUnsupportedMethod,
-  ApiErrors,
-} from "@/lib/utils/api-response";
-import { prisma } from "@/lib/prisma";
+import { successResponse, handleUnsupportedMethod } from "@/lib/utils/api-response";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
+import * as communityService from "@/lib/services/community-service";
 
 /**
  * POST /api/communities/[communityId]/invite-link
  * Generate or refresh the community invite link (admin/owner/moderator only)
  */
 export const POST = withAuth(async (user, _request: NextRequest, params) => {
-  const communityId = params?.communityId;
-  if (!communityId) {
-    return ApiErrors.badRequest("Community ID is required");
-  }
-
-  const membership = await prisma.community_members.findFirst({
-    where: {
-      community_id: communityId,
-      profile_id: user.id,
-      membership_status: "active",
-    },
-    select: { member_role: true },
-  });
-
-  if (!membership) {
-    return ApiErrors.forbidden("You are not a member of this community");
-  }
-
-  if (!["owner", "admin", "moderator"].includes(membership.member_role || "")) {
-    return ApiErrors.forbidden("You don't have permission to manage invite links");
-  }
-
-  const token = randomUUID();
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
-
   try {
-    await prisma.communities.update({
-      where: { id: communityId },
-      data: {
-        invite_link_token: token,
-        invite_link_expires_at: expiresAt,
-      },
-    });
-
-    return successResponse(
-      { token, expires_at: expiresAt.toISOString() },
-      undefined,
-      201
+    const result = await communityService.generateInviteLink(
+      params!.communityId,
+      user.id
     );
-  } catch (error) {
-    console.error("Error generating invite link:", error);
-    return ApiErrors.serverError();
+    return successResponse(result, undefined, 201);
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 
@@ -64,41 +25,11 @@ export const POST = withAuth(async (user, _request: NextRequest, params) => {
  * Revoke the community invite link (admin/owner/moderator only)
  */
 export const DELETE = withAuth(async (user, _request: NextRequest, params) => {
-  const communityId = params?.communityId;
-  if (!communityId) {
-    return ApiErrors.badRequest("Community ID is required");
-  }
-
-  const membership = await prisma.community_members.findFirst({
-    where: {
-      community_id: communityId,
-      profile_id: user.id,
-      membership_status: "active",
-    },
-    select: { member_role: true },
-  });
-
-  if (!membership) {
-    return ApiErrors.forbidden("You are not a member of this community");
-  }
-
-  if (!["owner", "admin", "moderator"].includes(membership.member_role || "")) {
-    return ApiErrors.forbidden("You don't have permission to manage invite links");
-  }
-
   try {
-    await prisma.communities.update({
-      where: { id: communityId },
-      data: {
-        invite_link_token: null,
-        invite_link_expires_at: null,
-      },
-    });
-
+    await communityService.revokeInviteLink(params!.communityId, user.id);
     return successResponse({ message: "Invite link revoked" });
-  } catch (error) {
-    console.error("Error revoking invite link:", error);
-    return ApiErrors.serverError();
+  } catch (err) {
+    return handleServiceError(err);
   }
 });
 

@@ -1,39 +1,27 @@
 import { NextRequest } from "next/server";
 import { withAuth } from "@/lib/utils/api-route-helper";
-import { successResponse, ApiErrors } from "@/lib/utils/api-response";
+import { successResponse, handleUnsupportedMethod } from "@/lib/utils/api-response";
 import { prisma } from "@/lib/prisma";
+import { handleServiceError } from "@/lib/errors/handle-service-error";
+import { assertCommunityMember } from "@/lib/guards/assert-community-member";
+import { NotFoundError } from "@/lib/errors/domain-errors";
 
-/**
- * GET /api/communities/:communityId/conversation
- * Get the community's group conversation.
- */
-export const GET = withAuth(
-  async (user, _request: NextRequest, params) => {
-    const { communityId } = params!;
-
-    const membership = await prisma.community_members.findFirst({
-      where: {
-        community_id: communityId,
-        profile_id: user.id,
-        membership_status: "active",
-      },
-    });
-
-    if (!membership) {
-      return ApiErrors.notCommunityMember();
-    }
+export const GET = withAuth(async (user, _request: NextRequest, params) => {
+  try {
+    await assertCommunityMember(params!.communityId, user.id);
 
     const conversation = await prisma.conversations.findFirst({
-      where: {
-        community_id: communityId,
-        conversation_type: "community",
-      },
+      where: { community_id: params!.communityId, conversation_type: "community" },
     });
+    if (!conversation) throw new NotFoundError("Conversation");
 
-    if (!conversation) {
-      return ApiErrors.notFound("Conversation");
-    }
-
-    return successResponse({ conversation: conversation });
+    return successResponse({ conversation });
+  } catch (err) {
+    return handleServiceError(err);
   }
-);
+});
+
+export async function POST() { return handleUnsupportedMethod(["GET"]); }
+export async function PUT() { return handleUnsupportedMethod(["GET"]); }
+export async function PATCH() { return handleUnsupportedMethod(["GET"]); }
+export async function DELETE() { return handleUnsupportedMethod(["GET"]); }

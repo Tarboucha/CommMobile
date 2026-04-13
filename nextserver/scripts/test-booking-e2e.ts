@@ -198,7 +198,6 @@ async function main() {
       profile_id: provider.id,
       membership_status: 'active',
       can_post_offerings: true,
-      community_members_community_id_profile_id_key: undefined,
     },
   });
   const customerMembership = await prisma.community_members.findFirst({
@@ -505,16 +504,14 @@ async function main() {
   assert(svcInstances.length === 1, '1 schedule_instance for service date');
   assert(svcInstances[0].slots_booked === 1, 'service: 1 slot reserved');
 
-  section('16. Service: confirm → in_progress → ready → completed');
+  section('16. Service: confirm → completed (simplified flow)');
   await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'confirmed' });
-  await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'in_progress' });
-  await api(providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'ready' });
   const svcComplete = await api<{ data: { booking: any } }>(
     providerToken, 'PATCH', `/api/v1/bookings/${svcBookingId}`, { booking_status: 'completed' }
   );
   assert(svcComplete.data.booking.booking_status === 'completed', 'service booking completed');
   assert(svcComplete.data.booking.completed_at, 'service completed_at set');
-  ok('service: full status flow passed');
+  ok('service: simplified status flow passed (no in_progress/ready steps)');
 
   // ═══════════════════════════════════════════════════════════════════════════
   // TIME-SLOTTED SERVICE BOOKING FLOW
