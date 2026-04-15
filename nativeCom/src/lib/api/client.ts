@@ -1,10 +1,9 @@
 // API client for mobile app - Token-based authentication
 import Constants from 'expo-constants';
-import { supabase } from '@/lib/supabase/client';
+import * as SecureStore from 'expo-secure-store';
 import { withRetry } from '@/lib/utils/retry';
 import { type FetchAPIOptions, type RetryOptions, ApiClientError } from '@/types/api';
 
-// Re-export for backward compatibility
 export { ApiClientError };
 
 const isDev = __DEV__;
@@ -12,16 +11,52 @@ const API_URL = isDev
   ? Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3002'
   : Constants.expoConfig?.extra?.apiUrlProd || process.env.EXPO_PUBLIC_API_URL_PROD || 'https://api.kodo.app';
 
+const AUTH_URL = isDev
+  ? process.env.EXPO_PUBLIC_AUTH_URL || 'http://localhost:3004'
+  : process.env.EXPO_PUBLIC_AUTH_URL_PROD || 'https://auth.kodo.app';
 
 // ============================================================================
-// Cached token via onAuthStateChange
+// Token management via SecureStore
 // ============================================================================
 
-let cachedAccessToken: string | null = null;
+async function getAccessToken(): Promise<string> {
+  const token = await SecureStore.getItemAsync('access_token');
+  if (!token) {
+    throw new ApiClientError('Not authenticated', 401);
+  }
+  return token;
+}
 
-supabase.auth.onAuthStateChange((_event, session) => {
-  cachedAccessToken = session?.access_token ?? null;
-});
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = await SecureStore.getItemAsync('refresh_token');
+  if (!refreshToken) return null;
+
+  try {
+    const res = await fetch(`${AUTH_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    await SecureStore.setItemAsync('access_token', data.access_token);
+    await SecureStore.setItemAsync('refresh_token', data.refresh_token);
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+async function clearTokens(): Promise<void> {
+  await SecureStore.deleteItemAsync('access_token');
+  await SecureStore.deleteItemAsync('refresh_token');
+}
+
+// ============================================================================
+// Error helpers
+// ============================================================================
 
 export interface ApiError {
   message: string;
@@ -44,53 +79,16 @@ function buildApiError(errorData: ApiErrorResponse, status: number, statusText: 
   return new ApiClientError(message, status, details);
 }
 
-/**
- * Get the current access token.
- * Uses the cached token from onAuthStateChange when available,
- * falls back to getSession() if cache is not yet populated.
- */
-async function getAccessToken(): Promise<string> {
-  if (cachedAccessToken) {
-    return cachedAccessToken;
-  }
+// ============================================================================
+// Fetch with auth + token refresh
+// ============================================================================
 
-  // Fallback: cache not yet populated (e.g. first call before onAuthStateChange fires)
-  const { data: { session }, error } = await supabase.auth.getSession();
-  if (error || !session) {
-    throw new ApiClientError('Not authenticated', 401);
-  }
-  cachedAccessToken = session.access_token;
-  return session.access_token;
-}
-
-/**
- * Make authenticated API request with automatic token refresh and retry
- *
- * @param endpoint - API endpoint (e.g., '/api/users')
- * @param options - Fetch options with optional retry configuration
- * @returns Response data
- *
- * @example
- * ```ts
- * // Default retry (3 attempts with exponential backoff)
- * const data = await fetchAPI('/api/data');
- *
- * // Custom retry config
- * const data = await fetchAPI('/api/data', {
- *   retry: { maxRetries: 5, baseDelayMs: 500 }
- * });
- *
- * // Disable retry
- * const data = await fetchAPI('/api/auth/login', { retry: false });
- * ```
- */
 export async function fetchAPI<T = any>(
   endpoint: string,
   options?: FetchAPIOptions
 ): Promise<T> {
   const { retry = true, ...fetchOptions } = options ?? {};
 
-  // The actual fetch operation
   const doFetch = async (): Promise<T> => {
     try {
       const token = await getAccessToken();
@@ -105,14 +103,12 @@ export async function fetchAPI<T = any>(
         },
       });
 
-      // Handle 401 - Token might be expired/invalid (not retried by withRetry)
+      // Handle 401 — try refreshing the token
       if (response.status === 401) {
-        const { data: { session: newSession }, error: refreshError } =
-          await supabase.auth.refreshSession();
+        const newToken = await refreshAccessToken();
 
-        if (refreshError || !newSession) {
-          cachedAccessToken = null;
-          await supabase.auth.signOut();
+        if (!newToken) {
+          await clearTokens();
           throw new ApiClientError('Session expired, please login again', 401);
         }
 
@@ -121,7 +117,7 @@ export async function fetchAPI<T = any>(
           ...fetchOptions,
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${newSession.access_token}`,
+            'Authorization': `Bearer ${newToken}`,
             ...fetchOptions?.headers,
           },
         });
@@ -152,7 +148,6 @@ export async function fetchAPI<T = any>(
     }
   };
 
-  // Apply retry logic if enabled
   if (retry) {
     const retryOptions: RetryOptions = typeof retry === 'object' ? retry : {};
     return withRetry(doFetch, retryOptions);
@@ -163,7 +158,6 @@ export async function fetchAPI<T = any>(
 
 /**
  * Make authenticated FormData upload with retry support
- * (no Content-Type header — browser sets boundary)
  */
 export async function uploadAPI<T = any>(
   endpoint: string,
@@ -198,7 +192,6 @@ export async function uploadAPI<T = any>(
     }
   };
 
-  // Apply retry logic if enabled
   if (retryConfig) {
     const retryOptions: RetryOptions = typeof retryConfig === 'object' ? retryConfig : {};
     return withRetry(doUpload, retryOptions);

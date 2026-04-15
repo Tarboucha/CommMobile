@@ -3,6 +3,26 @@
 .env.*
 !.env.example
 
+# Dependencies — catch-all for every subdir (auth-service, worker, socket-server, etc.)
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+
+# SQL dumps — contain real user data (emails, bcrypt hashes). Never commit.
+supabase-*.sql
+*-backup.sql
+*-data.sql
+*-auth-users.sql
+*.sql.gz
+
+# Planning / internal docs — exclude every .md except README.md
+*.md
+!README.md
+!**/README.md
+
 # OS
 .DS_Store
 Thumbs.db

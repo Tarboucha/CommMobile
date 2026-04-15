@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase/client';
+import * as SecureStore from 'expo-secure-store';
 import { fetchMe } from '@/lib/api/auth';
 import { queryClient } from '@/lib/query-client';
 import type { User } from '@/types/auth';
@@ -47,15 +47,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      await get().fetchUser();
-
-      supabase.auth.onAuthStateChange(async (_event) => {
-        if (_event === 'SIGNED_OUT') {
-          get().clearUser();
-        } else if (_event === 'SIGNED_IN') {
-          await get().fetchUser();
-        }
-      });
+      // Check if we have a stored token
+      const token = await SecureStore.getItemAsync('access_token');
+      if (token) {
+        await get().fetchUser();
+      } else {
+        set({ user: null, isLoading: false, error: null, isInitialized: true });
+      }
     } catch {
       set({ user: null, isLoading: false, error: null, isInitialized: true });
     }

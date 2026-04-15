@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase/client';
+import * as SecureStore from 'expo-secure-store';
 import { fetchMe } from '@/lib/api/auth';
 import { ApiClientError } from '@/lib/api/client';
 import type {
@@ -10,13 +10,12 @@ import type {
   SignUpError,
 } from '@/types/auth';
 
+const AUTH_URL = process.env.EXPO_PUBLIC_AUTH_URL || 'http://localhost:3004';
+
 // ============================================================================
 // Validation
 // ============================================================================
 
-/**
- * Validate login credentials
- */
 export function validateLoginCredentials(credentials: LoginCredentials): LoginError | null {
   if (!credentials.email || !credentials.password) {
     return { type: 'validation', message: 'Please enter both email and password' };
@@ -24,9 +23,6 @@ export function validateLoginCredentials(credentials: LoginCredentials): LoginEr
   return null;
 }
 
-/**
- * Validate signup credentials
- */
 export function validateSignUpCredentials(credentials: SignUpCredentials): SignUpError | null {
   if (!credentials.email || !credentials.password || !credentials.confirmPassword) {
     return { type: 'validation', message: 'Please fill in all fields' };
@@ -51,58 +47,47 @@ export function validateSignUpCredentials(credentials: SignUpCredentials): SignU
  * Login with email and password
  *
  * Flow:
- * 1. Authenticate with Supabase (get JWT tokens)
- * 2. Validate with backend (check business rules: banned, onboarding, etc.)
+ * 1. Authenticate with auth-service (get JWT tokens)
+ * 2. Store tokens in SecureStore
+ * 3. Validate with backend (check business rules: banned, onboarding, etc.)
  */
 export async function login(credentials: LoginCredentials): Promise<LoginResult> {
-  // Validate credentials
   const validationError = validateLoginCredentials(credentials);
   if (validationError) {
     return { success: false, error: validationError };
   }
 
-
   try {
-    // STEP 1: Login with Supabase directly
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: credentials.email.trim(),
-      password: credentials.password,
+    // STEP 1: Login with auth-service
+    const res = await fetch(`${AUTH_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: credentials.email.trim(),
+        password: credentials.password,
+      }),
     });
 
+    const data = await res.json();
 
-    if (error) {
-      // Handle specific Supabase auth errors
-      if (error.message.includes('Invalid login credentials')) {
+    if (!res.ok) {
+      if (res.status === 401) {
         return {
           success: false,
           error: { type: 'invalid_credentials', message: 'Incorrect email or password' },
         };
       }
-      if (error.message.includes('Email not confirmed')) {
-        return {
-          success: false,
-          error: {
-            type: 'email_not_confirmed',
-            message: 'Please check your email and confirm your account before logging in.',
-          },
-        };
-      }
       return {
         success: false,
-        error: { type: 'unknown', message: error.message },
+        error: { type: 'unknown', message: data.message || 'Login failed' },
       };
     }
 
-    if (!data.session) {
-      return {
-        success: false,
-        error: { type: 'session_failed', message: 'Failed to establish session' },
-      };
-    }
+    // STEP 2: Store tokens
+    await SecureStore.setItemAsync('access_token', data.access_token);
+    await SecureStore.setItemAsync('refresh_token', data.refresh_token);
 
-
-    // STEP 2: Validate with backend (business rules)
-
+    // STEP 3: Validate with backend (business rules)
     try {
       const response = await fetchMe();
       const { profile, requiresOnboarding, requiresProfileCompletion } = response.data;
@@ -114,8 +99,8 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
         requiresProfileCompletion,
       };
     } catch (backendError) {
-      // Backend rejected user - logout
-      await supabase.auth.signOut();
+      // Backend rejected user — clear tokens
+      await clearTokens();
 
       if (backendError instanceof ApiClientError) {
         if (backendError.status === 403) {
@@ -159,26 +144,26 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
 // Sign Up Service
 // ============================================================================
 
-/**
- * Sign up with email and password
- */
 export async function signUp(credentials: SignUpCredentials): Promise<SignUpResult> {
-  // Validate credentials
   const validationError = validateSignUpCredentials(credentials);
   if (validationError) {
     return { success: false, error: validationError };
   }
 
-
   try {
-    const { data, error } = await supabase.auth.signUp({
-      email: credentials.email.trim(),
-      password: credentials.password,
+    const res = await fetch(`${AUTH_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: credentials.email.trim(),
+        password: credentials.password,
+      }),
     });
 
-    if (error) {
-      // Handle specific Supabase auth errors
-      if (error.message.includes('already registered')) {
+    const data = await res.json();
+
+    if (!res.ok) {
+      if (res.status === 409) {
         return {
           success: false,
           error: { type: 'email_exists', message: 'An account with this email already exists' },
@@ -186,21 +171,13 @@ export async function signUp(credentials: SignUpCredentials): Promise<SignUpResu
       }
       return {
         success: false,
-        error: { type: 'unknown', message: error.message },
-      };
-    }
-
-    if (data.user) {
-
-      return {
-        success: true,
-        requiresEmailVerification: true,
+        error: { type: 'unknown', message: data.message || 'Failed to create account' },
       };
     }
 
     return {
-      success: false,
-      error: { type: 'unknown', message: 'Failed to create account' },
+      success: true,
+      requiresEmailVerification: true,
     };
   } catch (error) {
     return {
@@ -214,9 +191,26 @@ export async function signUp(credentials: SignUpCredentials): Promise<SignUpResu
 // Logout Service
 // ============================================================================
 
-/**
- * Logout current user
- */
 export async function logout(): Promise<void> {
-  await supabase.auth.signOut();
+  try {
+    const token = await SecureStore.getItemAsync('access_token');
+    if (token) {
+      await fetch(`${AUTH_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  } catch {
+    // Best effort — clear tokens even if server call fails
+  }
+  await clearTokens();
+}
+
+// ============================================================================
+// Token Helpers
+// ============================================================================
+
+export async function clearTokens(): Promise<void> {
+  await SecureStore.deleteItemAsync('access_token');
+  await SecureStore.deleteItemAsync('refresh_token');
 }

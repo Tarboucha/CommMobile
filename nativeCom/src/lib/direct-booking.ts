@@ -32,6 +32,10 @@ export interface DirectBookingParams {
   specialInstructions?: string;
   /** Optional override of profile phone */
   contactPhone?: string;
+  /** Optional initial offer (counter-price the customer wants to propose) */
+  offerAmount?: number;
+  /** Optional note explaining the offer */
+  offerNote?: string;
 }
 
 /**
@@ -54,6 +58,8 @@ export function buildDirectBookingPayload(
     deliveryAddressId = null,
     specialInstructions,
     contactPhone,
+    offerAmount,
+    offerNote,
   } = params;
 
   const isLoan = offering.transaction_type === 'loan';
@@ -94,6 +100,8 @@ export function buildDirectBookingPayload(
     special_instructions: specialInstructions?.trim() || undefined,
     contact_phone: contactPhone?.trim() || undefined,
     idempotency_key: generateUUID(),
+    ...(offerAmount && offerAmount > 0 && { offer_amount: offerAmount }),
+    ...(offerAmount && offerAmount > 0 && offerNote?.trim() && { offer_note: offerNote.trim() }),
   };
 }
 

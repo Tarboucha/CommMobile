@@ -28,6 +28,10 @@ interface DirectBookingSheetProps {
   title: string;
   /** Label for the confirm button (e.g. "Confirm Borrow", "Book") */
   confirmLabel?: string;
+  /** Total price for the booking — when > 0 the "Make an Offer" toggle is shown */
+  totalPrice?: number;
+  /** Currency code used in the offer input (defaults to offering.currency_code) */
+  currencyCode?: string;
   /**
    * Optional content rendered above the standard fields.
    * Used by the loan sheet to show date pickers, etc.
@@ -55,6 +59,8 @@ export function DirectBookingSheet({
   offering,
   title,
   confirmLabel = 'Confirm Booking',
+  totalPrice = 0,
+  currencyCode,
   customContent,
   bookingParams,
   summaryLines,
@@ -69,15 +75,28 @@ export function DirectBookingSheet({
   const [contactPhone, setContactPhone] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState('');
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+  const [makeOffer, setMakeOffer] = useState(false);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerNote, setOfferNote] = useState('');
 
   const isDelivery = offering.fulfillment_method === 'delivery';
   const isPickup = offering.fulfillment_method === 'pickup';
+  const offerCurrency = currencyCode ?? offering.currency_code ?? 'EUR';
+
+  const parsedOffer = (() => {
+    const n = parseFloat(offerAmount.replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+  const offerInvalid = makeOffer && (parsedOffer === null || parsedOffer === totalPrice);
+  const offerIsLow = makeOffer && parsedOffer !== null && totalPrice > 0 && parsedOffer < totalPrice * 0.5;
+  const offerActive = makeOffer && parsedOffer !== null && parsedOffer !== totalPrice;
 
   const canSubmit =
     !!paymentMethod &&
     (!isDelivery || !!selectedAddressId) &&
     !createBooking.isPending &&
-    !confirmDisabled;
+    !confirmDisabled &&
+    !offerInvalid;
 
   const handleConfirm = async () => {
     if (!canSubmit) return;
@@ -94,6 +113,8 @@ export function DirectBookingSheet({
         deliveryAddressId: selectedAddressId,
         specialInstructions: specialInstructions || undefined,
         contactPhone: contactPhone || undefined,
+        ...(offerActive && parsedOffer !== null && { offerAmount: parsedOffer }),
+        ...(offerActive && offerNote.trim() && { offerNote: offerNote.trim() }),
         ...bookingParams,
       });
 
@@ -191,6 +212,80 @@ export function DirectBookingSheet({
               />
             </View>
 
+            {/* Make an Offer (only when there's a price) */}
+            {totalPrice > 0 && (
+              <View className="p-4 rounded-lg bg-card gap-3">
+                <Pressable
+                  className="flex-row items-center gap-2"
+                  onPress={() => setMakeOffer((v) => !v)}
+                >
+                  <Ionicons
+                    name={makeOffer ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={makeOffer ? '#10B981' : '#6B7280'}
+                  />
+                  <Text className="text-sm font-semibold flex-1">
+                    Make an offer instead of paying full price
+                  </Text>
+                </Pressable>
+
+                {makeOffer && (
+                  <View className="gap-3 pt-2">
+                    <View className="flex-row items-center gap-3">
+                      <View className="flex-1">
+                        <Text className="text-xs text-muted-foreground">Listed price</Text>
+                        <Text className="text-base font-medium line-through text-muted-foreground">
+                          {totalPrice.toFixed(2)} {offerCurrency}
+                        </Text>
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-xs text-muted-foreground">Your offer</Text>
+                        <View className="flex-row items-center border border-border rounded-lg bg-background px-3">
+                          <TextInput
+                            className="flex-1 py-2 text-base text-foreground"
+                            placeholder="0.00"
+                            placeholderTextColor="#9CA3AF"
+                            value={offerAmount}
+                            onChangeText={setOfferAmount}
+                            keyboardType="decimal-pad"
+                          />
+                          <Text className="text-sm text-muted-foreground">{offerCurrency}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {offerInvalid && offerAmount.length > 0 && (
+                      <Text className="text-xs text-destructive">
+                        {parsedOffer === totalPrice
+                          ? 'Offer matches listed price — uncheck to place a regular booking.'
+                          : 'Enter a valid amount.'}
+                      </Text>
+                    )}
+
+                    {offerIsLow && (
+                      <Text className="text-xs text-amber-600">
+                        That's a low offer — provider may decline.
+                      </Text>
+                    )}
+
+                    <View className="gap-1">
+                      <Text className="text-xs text-muted-foreground">Note (optional)</Text>
+                      <TextInput
+                        className="border border-border rounded-lg p-3 text-sm bg-background text-foreground min-h-[60px]"
+                        placeholder="Why this price? (optional)"
+                        placeholderTextColor="#9CA3AF"
+                        value={offerNote}
+                        onChangeText={setOfferNote}
+                        multiline
+                        maxLength={500}
+                        textAlignVertical="top"
+                      />
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Summary */}
             {summaryLines && summaryLines.length > 0 && (
               <View className="p-4 rounded-lg bg-card gap-2">
@@ -224,9 +319,15 @@ export function DirectBookingSheet({
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <View className="flex-row items-center gap-2">
-                  <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
+                  <Ionicons
+                    name={offerActive ? 'pricetag' : 'checkmark-circle'}
+                    size={22}
+                    color="#FFFFFF"
+                  />
                   <Text className="text-base font-bold text-primary-foreground">
-                    {confirmLabel}
+                    {offerActive
+                      ? `Send with Offer — ${parsedOffer!.toFixed(2)} ${offerCurrency}`
+                      : confirmLabel}
                   </Text>
                 </View>
               )}

@@ -21,13 +21,12 @@ function socketPayloadToMessage(data: SocketMessagePayload): ChatMessage {
     conversation_id: data.conversation_id,
     sender_id: data.sender_id,
     content: data.content,
+    message_type: 'text',
+    metadata: null,
     is_edited: false,
     is_deleted: false,
     created_at: data.created_at,
     has_attachments: false,
-    edited_at: null,
-    deleted_at: null,
-    expires_at: null,
     reply_to_message_id: null,
     sender: {
       id: data.sender_id,
@@ -87,8 +86,22 @@ export function useChatMessages({
     enabled: enabled && !!conversationId,
   });
 
-  // Flatten pages into a single messages array
-  const messages = messagesQuery.data?.pages.flatMap((page) => page.data) ?? [];
+  // Flatten pages into a single messages array.
+  // The list is rendered with `inverted` FlatList — array[0] = bottom = newest.
+  // Sort DESC by created_at, but for ties (system messages emitted in the same
+  // DB transaction) push booking_request to the back so it always renders ABOVE
+  // the price_offer/status_update messages it spawns.
+  const messages = useMemo(() => {
+    const flat = messagesQuery.data?.pages.flatMap((page) => page.data) ?? [];
+    return [...flat].sort((a, b) => {
+      const tsDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      if (tsDiff !== 0) return tsDiff;
+      // Same timestamp → booking_request should be the OLDEST (last in array).
+      if (a.message_type === 'booking_request' && b.message_type !== 'booking_request') return 1;
+      if (b.message_type === 'booking_request' && a.message_type !== 'booking_request') return -1;
+      return a.id < b.id ? 1 : -1;
+    });
+  }, [messagesQuery.data]);
 
   // Socket: join/leave room + listen for new messages
   useEffect(() => {

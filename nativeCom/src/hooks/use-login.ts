@@ -2,16 +2,22 @@ import { useState } from 'react';
 import { Alert } from 'react-native';
 import { router } from 'expo-router';
 import { login } from '@/lib/services/auth-service';
+import { useAuthStore } from '@/lib/stores/auth-store';
 import type { LoginCredentials } from '@/types/auth';
 
 export function useLogin() {
   const [loading, setLoading] = useState(false);
+  const setUser = useAuthStore((s) => s.setUser);
 
   const handleLogin = async (credentials: LoginCredentials) => {
     setLoading(true);
 
     try {
       const result = await login(credentials);
+
+      if (result.success && result.profile) {
+        setUser(result.profile);
+      }
 
       if (!result.success && result.error) {
         switch (result.error.type) {

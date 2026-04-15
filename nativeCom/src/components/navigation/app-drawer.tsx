@@ -14,7 +14,7 @@ import { Text } from '@/components/ui/text';
 import { ThemeSwitcher } from '@/components/pages/account/shared/theme-switcher';
 import { useDrawer } from '@/contexts/drawer-context';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { supabase } from '@/lib/supabase/client';
+import { logout } from '@/lib/services/auth-service';
 import { getPublicUrl } from '@/lib/utils/storage';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -93,7 +93,8 @@ export function AppDrawer() {
           text: 'Log Out',
           style: 'destructive',
           onPress: async () => {
-            await supabase.auth.signOut();
+            await logout();
+            useAuthStore.getState().clearUser();
             router.replace('/');
           },
         },

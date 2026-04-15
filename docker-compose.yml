@@ -1,28 +1,131 @@
 services:
-  # KoDo Mobile Backend - API + WebSocket server for the mobile app
-  mobile-backend:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: kodo-postgres
+    environment:
+      POSTGRES_DB: kodo
+      POSTGRES_USER: kodo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data   # ⚠️ PRODUCTION DATA — never delete
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kodo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: kodo-auth
+    ports:
+      - "3004:3004"
+    env_file:
+      - .env
+    environment:
+      - PORT=3004
+      - DATABASE_URL=postgresql://kodo:${POSTGRES_PASSWORD}@postgres:5432/kodo
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  kodo-api:
     build:
       context: ./nextserver
       dockerfile: Dockerfile
-    env_file:
-      - ./nextserver/.env
-    container_name: kodo-mobile-backend
+    container_name: kodo-api
     ports:
       - "3002:3002"
+    env_file:
+      - .env                 # shared: DATABASE_URL, AUTH_SERVICE_URL, etc.
+      - ./nextserver/.env    # Next.js specific: NEXT_PUBLIC_*, MOBILE_*, etc.
     environment:
       - NODE_ENV=production
       - PORT=3002
-    networks:
-      - kodo-network
+      - HOSTNAME=0.0.0.0
+      - AUTH_SERVICE_URL=http://auth-service:3004
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  socket-server:
+    build:
+      context: ./socket-server
+      dockerfile: Dockerfile
+    container_name: kodo-socket
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env                    # shared: DATABASE_URL, AUTH_SERVICE_URL
+      - ./socket-server/.env    # socket-specific overrides (if any)
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOSTNAME=0.0.0.0
+      - REDIS_URL=redis://redis:6379
+      - AUTH_SERVICE_URL=http://auth-service:3004
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: kodo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3002/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))\""]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
       retries: 3
-      start_period: 40s
 
-networks:
-  kodo-network:
-    driver: bridge
-    name: kodo-internal-network
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: kodo-worker
+    env_file:
+      - .env                # DATABASE_URL, R2_*, etc.
+    environment:
+      - NODE_ENV=production
+      - TZ=UTC              # cron expressions evaluated in UTC
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pg_data:    # ⚠️ PRODUCTION DATA — never delete
+  redis_data: # safe to delete — cache only

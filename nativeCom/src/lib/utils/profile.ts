@@ -1,30 +1,18 @@
 import type { User } from "@/types/auth";
-import type { Address } from "@/types/address";
-import { supabase } from "@/lib/supabase/client";
+import { fetchMe } from "@/lib/api/auth";
 
 /**
- * Get profile with addresses for authenticated user
- * Queries the profiles table and joins addresses
+ * Get profile with addresses for authenticated user.
+ * Uses the kodo-api /auth/me endpoint instead of direct DB query.
  */
-export async function getProfileWithRelations(
-  authUserId: string
-): Promise<User | null> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("*, addresses(*)")
-    .eq("auth_user_id", authUserId)
-    .single();
-
-  if (error || !data) {
+export async function getProfileWithRelations(): Promise<User | null> {
+  try {
+    const result = await fetchMe();
+    if (result.success && result.data?.profile) {
+      return result.data.profile as User;
+    }
+    return null;
+  } catch {
     return null;
   }
-
-  const addresses: Address[] = Array.isArray(data.addresses)
-    ? data.addresses
-    : [];
-
-  return {
-    ...data,
-    addresses,
-  };
 }

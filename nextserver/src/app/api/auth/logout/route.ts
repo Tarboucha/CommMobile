@@ -1,22 +1,23 @@
-import { createClient } from "@/lib/supabase/server"
 import { ApiErrors, successResponse, handleUnsupportedMethod } from "@/lib/utils/api-response"
 import { NextRequest } from "next/server"
 
-export async function POST(_request: NextRequest) {
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3004'
+
+export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const authHeader = request.headers.get("authorization")
+    if (!authHeader) {
+      return ApiErrors.unauthorized("No authorization header")
+    }
 
-    // Sign out (idempotent - safe to call even if not logged in)
-    const { error: signOutError } = await supabase.auth.signOut()
+    const res = await fetch(`${AUTH_SERVICE_URL}/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: authHeader },
+    })
 
-    if (signOutError) {
-      // If already logged out, that's fine
-      const errorMsg = signOutError.message.toLowerCase()
-      if (errorMsg.includes("session") || errorMsg.includes("no session")) {
-        return successResponse({ message: "No active session" }, "Already logged out")
-      }
-      console.error("Logout error:", signOutError.message)
-      return ApiErrors.serverError("Failed to sign out")
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      return ApiErrors.unauthorized(body.message || 'Logout failed')
     }
 
     return successResponse({ message: "Successfully logged out" }, "Logged out successfully")
@@ -26,7 +27,6 @@ export async function POST(_request: NextRequest) {
   }
 }
 
-// Catch unsupported methods
 export async function GET() {
   return handleUnsupportedMethod(["POST"])
 }

@@ -15,10 +15,9 @@
  * sessions for both accounts.
  */
 
-import 'dotenv/config';
+import './load-env';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../src/generated/prisma/client';
-import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 
 const prisma = new PrismaClient({
@@ -26,10 +25,7 @@ const prisma = new PrismaClient({
 });
 
 const API_BASE = 'http://localhost:3002';
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_OR_PUBLISHABLE_KEY!;
+const AUTH_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3004';
 
 const PROVIDER_EMAIL = 'test3@kodo.com';
 const CUSTOMER_EMAIL = 'test2@kodo.com';
@@ -56,15 +52,14 @@ function assert(cond: unknown, msg: string): asserts cond {
 }
 
 async function login(email: string): Promise<string> {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password: PASSWORD,
+  const res = await fetch(`${AUTH_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: PASSWORD }),
   });
-  if (error || !data.session) {
-    throw new Error(`Login failed for ${email}: ${error?.message}`);
-  }
-  return data.session.access_token;
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Login failed for ${email}: ${data.message}`);
+  return data.access_token;
 }
 
 async function api<T = any>(

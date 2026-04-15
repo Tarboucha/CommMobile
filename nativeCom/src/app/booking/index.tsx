@@ -69,6 +69,9 @@ export default function BookingReviewScreen() {
   const [paymentMethod, setPaymentMethod] = useState<string | null>('cash');
   const [contactPhone, setContactPhone] = useState<string>('');
   const [specialInstructions, setSpecialInstructions] = useState('');
+  const [makeOffer, setMakeOffer] = useState(false);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerNote, setOfferNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Derived values
@@ -101,12 +104,22 @@ export default function BookingReviewScreen() {
   const total = subtotal + deliveryFees;
   const currencyCode = items[0]?.currencyCode ?? 'EUR';
 
+  // Offer parsing
+  const parsedOffer = useMemo(() => {
+    const n = parseFloat(offerAmount.replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [offerAmount]);
+
+  const offerInvalid = makeOffer && (parsedOffer === null || parsedOffer === total);
+  const offerIsLow = makeOffer && parsedOffer !== null && parsedOffer < subtotal * 0.5;
+
   // Validation
   const canSubmit =
     items.length > 0 &&
     paymentMethod &&
     providerId &&
     (!hasDeliveryItems || selectedAddressId) &&
+    !offerInvalid &&
     !isSubmitting;
 
   // --- Handlers ---
@@ -123,6 +136,7 @@ export default function BookingReviewScreen() {
 
     try {
       // Single provider, single booking — no split logic needed
+      const includeOffer = makeOffer && parsedOffer !== null && parsedOffer !== total;
       const booking = await createBooking({
         community_id: communityId,
         items: items.map((item) => ({
@@ -138,6 +152,8 @@ export default function BookingReviewScreen() {
         special_instructions: specialInstructions.trim() || undefined,
         contact_phone: contactPhone.trim() || undefined,
         idempotency_key: generateUUID(),
+        ...(includeOffer && { offer_amount: parsedOffer }),
+        ...(includeOffer && offerNote.trim() && { offer_note: offerNote.trim() }),
       });
 
       clearCart();
@@ -248,6 +264,82 @@ export default function BookingReviewScreen() {
             </Text>
           </View>
 
+          {/* Make an Offer (only if there's a price > 0) */}
+          {total > 0 && (
+            <View className="p-4 rounded-lg bg-card gap-3">
+              <Pressable
+                className="flex-row items-center justify-between"
+                onPress={() => setMakeOffer((v) => !v)}
+              >
+                <View className="flex-row items-center gap-2 flex-1">
+                  <Ionicons
+                    name={makeOffer ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={makeOffer ? '#10B981' : '#6B7280'}
+                  />
+                  <Text className="text-base font-semibold flex-1">
+                    Make an offer instead of paying full price
+                  </Text>
+                </View>
+              </Pressable>
+
+              {makeOffer && (
+                <View className="gap-3 pt-2">
+                  <View className="flex-row items-center gap-3">
+                    <View className="flex-1">
+                      <Text className="text-xs text-muted-foreground">Listed price</Text>
+                      <Text className="text-base font-medium line-through text-muted-foreground">
+                        {formatCurrency(total, currencyCode)}
+                      </Text>
+                    </View>
+                    <View className="flex-1">
+                      <Text className="text-xs text-muted-foreground">Your offer</Text>
+                      <View className="flex-row items-center border border-border rounded-lg bg-background px-3">
+                        <TextInput
+                          className="flex-1 py-2 text-base text-foreground"
+                          placeholder="0.00"
+                          placeholderTextColor="#9CA3AF"
+                          value={offerAmount}
+                          onChangeText={setOfferAmount}
+                          keyboardType="decimal-pad"
+                        />
+                        <Text className="text-sm text-muted-foreground">{currencyCode}</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {offerInvalid && offerAmount.length > 0 && (
+                    <Text className="text-xs text-destructive">
+                      {parsedOffer === total
+                        ? 'Offer matches listed price — uncheck to place a regular booking.'
+                        : 'Enter a valid amount.'}
+                    </Text>
+                  )}
+
+                  {offerIsLow && (
+                    <Text className="text-xs text-amber-600">
+                      That's a low offer — provider may decline.
+                    </Text>
+                  )}
+
+                  <View className="gap-1">
+                    <Text className="text-xs text-muted-foreground">Note (optional)</Text>
+                    <TextInput
+                      className="border border-border rounded-lg p-3 text-sm bg-background text-foreground min-h-[60px]"
+                      placeholder="Why this price? (optional)"
+                      placeholderTextColor="#9CA3AF"
+                      value={offerNote}
+                      onChangeText={setOfferNote}
+                      multiline
+                      maxLength={500}
+                      textAlignVertical="top"
+                    />
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Order Summary */}
           <View className="p-4 rounded-lg bg-card gap-3">
             <Text className="text-lg font-semibold">Summary</Text>
@@ -288,9 +380,15 @@ export default function BookingReviewScreen() {
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <View className="flex-row items-center gap-2">
-                <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
+                <Ionicons
+                  name={makeOffer && parsedOffer !== null ? 'pricetag' : 'checkmark-circle'}
+                  size={22}
+                  color="#FFFFFF"
+                />
                 <Text className="text-base font-bold text-primary-foreground">
-                  Place Booking — {formatCurrency(total, currencyCode)}
+                  {makeOffer && parsedOffer !== null
+                    ? `Send Booking with Offer — ${formatCurrency(parsedOffer, currencyCode)}`
+                    : `Place Booking — ${formatCurrency(total, currencyCode)}`}
                 </Text>
               </View>
             )}

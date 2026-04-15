@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClientFromRequest } from "@/lib/supabase/server";
+import { verifyToken } from "@/lib/auth/verify";
+import { prisma } from "@/lib/prisma";
 import { ApiErrors } from "@/lib/utils/api-response";
 import { runWithRequestContext, getRequestId, getRequestDuration } from "@/lib/request-context";
 import { User } from "@/types/auth";
@@ -13,65 +14,61 @@ type AuthenticatedHandler<TParams = Record<string, string>> = (
   params?: TParams
 ) => Promise<NextResponse> | NextResponse;
 
-/**
- * Fetch profile with addresses for authenticated user
- */
-async function fetchUserProfile(
-  supabase: ReturnType<typeof createClientFromRequest>,
-  authUserId: string
-): Promise<User | null> {
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("auth_user_id", authUserId)
-    .single();
-
-  if (profileError || !profile) return null;
-
-  const { data: addresses } = await supabase
-    .from("addresses")
-    .select("*")
-    .eq("profile_id", profile.id)
-    .is("deleted_at", null)
-    .order("is_default", { ascending: false });
-
-  return { ...profile, addresses: addresses || null } as User;
+function extractBearerToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  return authHeader.substring(7);
 }
 
 /**
- * Fast auth: JWT claims verification (local, no server round-trip)
+ * Fetch profile with addresses for authenticated user.
+ * sub = profile ID directly (no auth_user_id → profile_id lookup needed).
+ */
+async function fetchUserProfile(profileId: string): Promise<User | null> {
+  const profile = await prisma.profiles.findUnique({
+    where: { id: profileId },
+    include: {
+      addresses: {
+        where: { deleted_at: null },
+      },
+    },
+  });
+
+  if (!profile) return null;
+
+  return { ...profile, addresses: profile.addresses || null } as unknown as User;
+}
+
+/**
+ * Authenticate request: verify JWT via JWKS, then fetch profile via Prisma.
+ * sub in JWT = profile ID directly — single DB query, no Supabase round-trip.
  */
 export async function getAuthenticatedUser(request: NextRequest): Promise<User> {
-  const authHeader = request.headers.get("authorization");
-  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+  const token = extractBearerToken(request);
+  if (!token) throw new Error("UNAUTHORIZED");
 
-  if (!bearerToken) throw new Error("UNAUTHORIZED");
+  let claims;
+  try {
+    claims = await verifyToken(token);
+  } catch {
+    throw new Error("UNAUTHORIZED");
+  }
 
-  const supabase = createClientFromRequest(request);
-  const { data, error: claimsError } = await supabase.auth.getClaims(bearerToken);
+  if (!claims.sub) throw new Error("UNAUTHORIZED");
 
-  if (claimsError || !data?.claims?.sub) throw new Error("UNAUTHORIZED");
-
-  const user = await fetchUserProfile(supabase, data.claims.sub);
+  const user = await fetchUserProfile(claims.sub);
   if (!user) throw new Error("UNAUTHORIZED");
 
   return user;
 }
 
 /**
- * Secure auth: server-verified session (slower, ensures session not revoked)
- * Use for: bookings, payments, critical mutations
+ * Secure auth uses the same local JWT verification.
+ * With short-lived access tokens (1h) + refresh token rotation,
+ * local JWKS verification is sufficient — no server round-trip needed.
  */
 export async function getAuthenticatedUserSecure(request: NextRequest): Promise<User> {
-  const supabase = createClientFromRequest(request);
-  const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-
-  if (userError || !authUser) throw new Error("UNAUTHORIZED");
-
-  const user = await fetchUserProfile(supabase, authUser.id);
-  if (!user) throw new Error("UNAUTHORIZED");
-
-  return user;
+  return getAuthenticatedUser(request);
 }
 
 /**
@@ -124,7 +121,8 @@ export function withAuth<TParams = Record<string, string>>(
 
 /**
  * Secure authentication wrapper for sensitive operations.
- * Uses getUser() to verify session with Auth server.
+ * With our own auth service (short-lived JWTs + JWKS), both wrappers
+ * use the same local verification — no server round-trip needed.
  */
 export function withSecureAuth<TParams = Record<string, string>>(
   handler: AuthenticatedHandler<TParams>

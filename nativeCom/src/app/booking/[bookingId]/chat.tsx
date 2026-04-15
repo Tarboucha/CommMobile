@@ -44,7 +44,20 @@ export default function BookingChatScreen() {
   const { data: booking } = useBookingDetail(bookingId);
   const isPending = booking?.booking_status === 'pending';
   const hasPrice = (booking?.total_amount ?? 0) > 0;
-  const canNegotiate = isPending && hasPrice;
+
+  // Hide the "Make an Offer" chip if the user already has a pending offer
+  // (waiting for the other party's response — initial offer or counter-offer)
+  const hasOwnPendingOffer = messages.some(
+    (m) =>
+      m.message_type === 'price_offer' &&
+      m.sender_id === userId &&
+      ((m.metadata as { offer_status?: string } | null | undefined)?.offer_status ?? 'pending') === 'pending'
+  );
+  // Also hide if the latest price_offer is from the current user (still awaiting response)
+  const latestOffer = [...messages].reverse().find((m) => m.message_type === 'price_offer');
+  const waitingForResponse = latestOffer?.sender_id === userId;
+
+  const canNegotiate = isPending && hasPrice && !hasOwnPendingOffer && !waitingForResponse;
   const currency = booking?.currency_code ?? 'EUR';
 
   if (!bookingId) {

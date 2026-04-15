@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/ui/text';
 import { useDirectChat } from '@/hooks/queries/use-direct-chat';
 import { useAuthStore } from '@/lib/stores/auth-store';
-import { MessageBubble } from '@/components/pages/community/message-bubble';
+import { ChatMessageRenderer } from '@/components/chat/chat-message';
 
 export default function DirectChatScreen() {
   const { conversationId, name } = useLocalSearchParams<{
@@ -89,7 +89,11 @@ export default function DirectChatScreen() {
           keyExtractor={(item) => item.id}
           inverted
           renderItem={({ item }) => (
-            <MessageBubble message={item} isOwn={item.sender_id === userId} />
+            <ChatMessageRenderer
+              message={item}
+              isOwn={item.sender_id === userId}
+              userId={userId ?? ''}
+            />
           )}
           contentContainerStyle={{ paddingVertical: 12 }}
           onEndReached={loadMore}

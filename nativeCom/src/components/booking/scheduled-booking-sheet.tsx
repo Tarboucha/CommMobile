@@ -172,6 +172,8 @@ export function ScheduledBookingSheet({
       }}
       summaryLines={summaryLines}
       totalLabel={price > 0 ? formatCurrency(price, currency) : 'Free'}
+      totalPrice={price}
+      currencyCode={currency}
       onClose={onClose}
     />
   );

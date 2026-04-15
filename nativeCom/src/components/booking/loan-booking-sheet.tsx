@@ -167,6 +167,8 @@ export function LoanBookingSheet({ visible, offering, onClose }: LoanBookingShee
       }}
       summaryLines={summaryLines}
       totalLabel={formatCurrency(total, currency)}
+      totalPrice={rentalFee}
+      currencyCode={currency}
       onClose={onClose}
     />
   );

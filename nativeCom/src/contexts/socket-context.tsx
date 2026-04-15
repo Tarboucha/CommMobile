@@ -2,8 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import { AppState, AppStateStatus } from 'react-native'
 import { io, Socket } from 'socket.io-client'
 import Toast from 'react-native-toast-message'
+import * as SecureStore from 'expo-secure-store'
 import { useAuthStore } from '@/lib/stores/auth-store'
-import { supabase } from '@/lib/supabase/client'
 import { queryClient } from '@/lib/query-client'
 import { queryKeys } from '@/lib/query-keys'
 import type { SocketContextValue } from '@/types/socket'
@@ -36,7 +36,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
   const [badgeCount, setBadgeCount] = useState(0)
   const appState = useRef(AppState.currentState)
 
-  const socketUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3002'
+  const socketUrl = process.env.EXPO_PUBLIC_SOCKET_URL || 'http://localhost:3001'
 
   // Handle badge update — update count + invalidate notifications cache
   const handleBadgeUpdate = useCallback((event: { badge_count: number }) => {
@@ -87,9 +87,9 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
     const connectSocket = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const accessToken = await SecureStore.getItemAsync('access_token')
 
-        if (!session?.access_token) {
+        if (!accessToken) {
           console.log('[Socket] No access token, skipping connection')
           return
         }
@@ -97,7 +97,7 @@ export function SocketProvider({ children }: SocketProviderProps) {
         console.log('[Socket] Connecting to', socketUrl, '— user:', user.id)
         currentSocket = io(socketUrl, {
           auth: {
-            token: session.access_token,
+            token: accessToken,
             profileId: user.id,
           },
           transports: ['websocket', 'polling'],

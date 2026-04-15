@@ -7,10 +7,12 @@ import {
   View,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import { Text } from '@/components/ui/text';
 import { PasswordInput } from '@/components/pages/account/shared/password-input';
-import { supabase } from '@/lib/supabase/client';
 import { resetPasswordSchema } from '@/lib/validations/auth';
+
+const AUTH_URL = process.env.EXPO_PUBLIC_AUTH_URL || 'http://localhost:3004';
 
 export default function PasswordScreen() {
   const [password, setPassword] = useState('');
@@ -47,12 +49,9 @@ export default function PasswordScreen() {
     setIsLoading(true);
 
     try {
-      const {
-        data: { user: authUser },
-        error: userError,
-      } = await supabase.auth.getUser();
+      const token = await SecureStore.getItemAsync('access_token');
 
-      if (userError || !authUser) {
+      if (!token) {
         Alert.alert(
           'Error',
           'No active session found. Please log in again.'
@@ -61,26 +60,22 @@ export default function PasswordScreen() {
         return;
       }
 
-      const hasEmailIdentity = authUser.identities?.some(
-        (identity) => identity.provider === 'email'
-      );
-
-      if (!hasEmailIdentity) {
-        Alert.alert(
-          'Not Available',
-          'Password change is not available for accounts that signed up with Google. Please use Google to sign in.',
-          [{ text: 'OK' }]
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: password,
+      const res = await fetch(`${AUTH_URL}/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          current_password: password,
+          new_password: password,
+        }),
       });
 
-      if (updateError) {
-        Alert.alert('Error', updateError.message || 'Failed to update password');
+      const data = await res.json();
+
+      if (!res.ok) {
+        Alert.alert('Error', data.message || 'Failed to update password');
         setIsLoading(false);
         return;
       }
