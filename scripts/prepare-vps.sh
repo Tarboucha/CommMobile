@@ -50,18 +50,20 @@ else
   echo "→ User '$DEPLOY_USER' exists"
 fi
 
-# ── 5. Firewall ─────────────────────────────────────────────
-echo "→ Configuring firewall..."
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw --force enable
+# ── 5. Firewall (skipped — enable when going to production)
+# When ready, run on VPS:
+#   ufw allow 22/tcp
+#   ufw allow 80/tcp
+#   ufw allow 443/tcp
+#   ufw --force enable
+echo "→ Firewall skipped (all ports open for now)"
 
-# ── 6. Harden SSH ───────────────────────────────────────────
-echo "→ Hardening SSH..."
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
-systemctl reload sshd
+# ── 6. SSH hardening (skipped — enable when all devices have SSH keys)
+# When ready, uncomment and run on VPS:
+#   sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+#   sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+#   systemctl reload sshd
+echo "→ SSH hardening skipped (password login stays enabled)"
 
 # ── 7. Clone repo ──────────────────────────────────────────
 if [ ! -d "$REPO_DIR" ]; then

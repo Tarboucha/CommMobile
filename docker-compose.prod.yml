@@ -1,7 +1,8 @@
 # =============================================================================
 # Production override — merge with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# Adds nginx + certbot, removes public port mappings on internal services.
+# Adds nginx + certbot. Internal service ports stay open but the firewall
+# (ufw) blocks external access — only 80/443 are allowed through.
 # =============================================================================
 
 services:
@@ -21,8 +22,6 @@ services:
         condition: service_healthy
       auth-service:
         condition: service_healthy
-      socket-server:
-        condition: service_healthy
     restart: unless-stopped
 
   # ── certbot (Let's Encrypt renewal loop) ───────────────────
@@ -40,19 +39,3 @@ services:
          sleep 12h & wait $${!};
        done;"
     restart: unless-stopped
-
-  # ── Remove public port mappings (internal only via nginx) ──
-  kodo-api:
-    ports: !override []
-
-  auth-service:
-    ports: !override []
-
-  socket-server:
-    ports: !override []
-
-  redis:
-    ports: !override []
-
-  postgres:
-    ports: !override []
