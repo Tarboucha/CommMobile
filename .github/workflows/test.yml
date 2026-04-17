@@ -1,0 +1,136 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ── Job 1: Typecheck + Build ──────────────────────────────
+  typecheck:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # nextserver
+      - name: "nextserver: install"
+        run: pnpm install --frozen-lockfile
+        working-directory: nextserver
+
+      - name: "nextserver: prisma generate"
+        run: npx prisma generate
+        working-directory: nextserver
+
+      - name: "nextserver: build"
+        run: pnpm build
+        working-directory: nextserver
+        env:
+          # Prevent build-time validation of runtime env vars
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      # auth-service
+      - name: "auth-service: install + typecheck"
+        run: pnpm install && npx tsc --noEmit
+        working-directory: auth-service
+
+      # worker
+      - name: "worker: install + typecheck"
+        run: pnpm install && npx tsc --noEmit
+        working-directory: worker
+
+  # ── Job 2: E2E Tests ──────────────────────────────────────
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://kodo:testpassword@localhost:5432/kodo
+      POSTGRES_PASSWORD: testpassword
+      AUTH_SERVICE_URL: http://localhost:3004
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # Start the full stack
+      - name: Start Docker stack
+        run: docker compose up -d --build
+
+      # Wait for services to be healthy
+      - name: Wait for healthy services
+        run: |
+          echo "Waiting for services..."
+          for i in $(seq 1 60); do
+            ALL_HEALTHY=true
+            for url in "http://localhost:3002/api/v1/health" "http://localhost:3004/health" "http://localhost:3001/health"; do
+              if ! curl -fsS "$url" > /dev/null 2>&1; then
+                ALL_HEALTHY=false
+                break
+              fi
+            done
+            if [ "$ALL_HEALTHY" = true ]; then
+              echo "All services healthy after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "Timeout waiting for services"
+              docker compose logs
+              exit 1
+            fi
+            sleep 2
+          done
+
+      # Prepare DB
+      - name: Install extensions
+        run: |
+          docker exec -i kodo-postgres psql -U kodo -d kodo -c "
+            CREATE EXTENSION IF NOT EXISTS postgis;
+            CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          "
+
+      - name: Push Prisma schema
+        run: |
+          cd nextserver && pnpm install --frozen-lockfile
+          DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma db push --accept-data-loss
+
+      - name: Apply functions + triggers
+        run: docker exec -i kodo-postgres psql -U kodo -d kodo < db/functions.sql
+
+      # Seed test data
+      - name: Seed test data
+        run: |
+          chmod +x scripts/seed-test-data.sh
+          ./scripts/seed-test-data.sh
+
+      # Run E2E suites
+      - name: E2E — Booking flow
+        working-directory: nextserver
+        run: npx tsx scripts/test-booking-e2e.ts
+
+      - name: E2E — Socket flow
+        working-directory: nextserver
+        run: npx tsx scripts/test-socket-e2e.ts
+
+      # Storage e2e skipped in CI — hits real R2, run locally:
+      # cd nextserver && npx tsx scripts/test-storage-e2e.ts
+
+      # Cleanup
+      - name: Teardown
+        if: always()
+        run: docker compose down -v

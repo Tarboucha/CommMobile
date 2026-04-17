@@ -37,22 +37,10 @@ export default function ProfileEditScreen() {
     return user.email[0].toUpperCase();
   };
 
-  const uploadAvatar = async (uri: string) => {
+  const uploadAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
     setUploading(true);
-
     try {
-      const filename = uri.split('/').pop();
-      const match = /\.(\w+)$/.exec(filename || '');
-      const type = match ? `image/${match[1]}` : 'image/jpeg';
-
-      const formData = new FormData();
-      formData.append('file', {
-        uri,
-        name: filename,
-        type,
-      });
-
-      await uploadAvatarAPI(user.id, formData);
+      await uploadAvatarAPI(user.id, asset);
       await fetchUser();
       Alert.alert('Success', 'Avatar updated successfully');
     } catch (error) {
@@ -72,11 +60,11 @@ export default function ProfileEditScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.8,
+      quality: 1, // resize happens in uploadImageToR2
     });
 
     if (!result.canceled) {
-      await uploadAvatar(result.assets[0].uri);
+      await uploadAvatar(result.assets[0]);
     }
   };
 
@@ -90,11 +78,11 @@ export default function ProfileEditScreen() {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 1, // resize happens in uploadImageToR2
     });
 
     if (!result.canceled) {
-      await uploadAvatar(result.assets[0].uri);
+      await uploadAvatar(result.assets[0]);
     }
   };
 

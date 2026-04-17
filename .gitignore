@@ -23,6 +23,9 @@ supabase-*.sql
 !README.md
 !**/README.md
 
+# TLS certs (live on VPS only, never in git)
+nginx/certs/
+
 # OS
 .DS_Store
 Thumbs.db

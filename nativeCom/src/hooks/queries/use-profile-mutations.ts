@@ -1,4 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
+import type { ImagePickerAsset } from 'expo-image-picker';
 import { useAuthStore } from '@/lib/stores/auth-store';
 import { updateProfile, uploadAvatar, deleteAvatar } from '@/lib/api/profiles';
 
@@ -16,7 +17,7 @@ export function useUpdateProfile(profileId: string) {
 export function useUploadAvatar(profileId: string) {
   const fetchUser = useAuthStore((s) => s.fetchUser);
   return useMutation({
-    mutationFn: (formData: FormData) => uploadAvatar(profileId, formData),
+    mutationFn: (asset: ImagePickerAsset) => uploadAvatar(profileId, asset),
     onSuccess: () => {
       fetchUser();
     },
