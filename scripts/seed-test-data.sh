@@ -61,14 +61,14 @@ BEGIN
     RETURNING id INTO v_community_id;
   END IF;
 
-  -- Add provider as owner
-  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method)
-  VALUES (v_community_id, v_provider_id, 'owner', 'active', 'direct')
+  -- Add provider as owner (can post offerings)
+  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method, can_post_offerings, can_invite_members)
+  VALUES (v_community_id, v_provider_id, 'owner', 'active', 'direct', true, true)
   ON CONFLICT DO NOTHING;
 
   -- Add customer as member
-  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method)
-  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct')
+  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method, can_post_offerings, can_invite_members)
+  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct', false, false)
   ON CONFLICT DO NOTHING;
 
   RAISE NOTICE 'community=% provider=% customer=%', v_community_id, v_provider_id, v_customer_id;
