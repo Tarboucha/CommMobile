@@ -40,7 +40,7 @@ RUN pnpm build
 # =============================================================================
 FROM node:22-alpine AS runner
 
-RUN apk update && apk upgrade --available --no-cache
+RUN apk update && apk upgrade --available --no-cache && apk add --no-cache wget
 WORKDIR /app
 
 ENV NODE_ENV=production
