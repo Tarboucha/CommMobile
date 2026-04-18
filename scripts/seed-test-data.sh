@@ -61,14 +61,15 @@ BEGIN
     RETURNING id INTO v_community_id;
   END IF;
 
-  -- Add provider as owner (can post offerings)
-  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method, can_post_offerings, can_invite_members)
-  VALUES (v_community_id, v_provider_id, 'owner', 'active', 'direct', true, true)
-  ON CONFLICT DO NOTHING;
+  -- The add_creator_as_owner_on_community_create trigger already inserted
+  -- the provider as owner. Update it to grant posting permissions.
+  UPDATE community_members
+  SET can_post_offerings = true, can_invite_members = true, membership_status = 'active'
+  WHERE community_id = v_community_id AND profile_id = v_provider_id;
 
-  -- Add customer as member
-  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method, can_post_offerings, can_invite_members)
-  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct', false, false)
+  -- Add customer as active member
+  INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method)
+  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct')
   ON CONFLICT DO NOTHING;
 
   RAISE NOTICE 'community=% provider=% customer=%', v_community_id, v_provider_id, v_customer_id;
