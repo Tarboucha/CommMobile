@@ -1,9 +1,8 @@
 import { generateKeyPair, exportJWK, importJWK } from 'jose'
-import type { KeyLike } from 'jose'
 
 export interface KeyPair {
-  privateKey: KeyLike
-  publicKey: KeyLike
+  privateKey: CryptoKey
+  publicKey: CryptoKey
   publicKeyJwk: Record<string, unknown>
 }
 
@@ -16,12 +15,12 @@ export async function loadKeys(): Promise<KeyPair> {
     const privateKey = (await importJWK(
       JSON.parse(process.env.AUTH_PRIVATE_KEY),
       'ES256'
-    )) as KeyLike
+    )) as CryptoKey
 
     const publicKey = (await importJWK(
       JSON.parse(process.env.AUTH_PUBLIC_KEY),
       'ES256'
-    )) as KeyLike
+    )) as CryptoKey
 
     const publicKeyJwk = JSON.parse(process.env.AUTH_PUBLIC_KEY) as Record<string, unknown>
 
@@ -33,7 +32,7 @@ export async function loadKeys(): Promise<KeyPair> {
   console.warn('⚠️  AUTH_PRIVATE_KEY not set — generating ephemeral keys (not for production)')
   console.warn('    Copy the values below into your .env file:\n')
 
-  const { privateKey, publicKey } = await generateKeyPair('ES256')
+  const { privateKey, publicKey } = await generateKeyPair('ES256', { extractable: true })
   const privateJwk = await exportJWK(privateKey)
   const publicJwk = await exportJWK(publicKey)
 
@@ -41,8 +40,8 @@ export async function loadKeys(): Promise<KeyPair> {
   console.log(`AUTH_PUBLIC_KEY='${JSON.stringify(publicJwk)}'\n`)
 
   _keys = {
-    privateKey: privateKey as KeyLike,
-    publicKey: publicKey as KeyLike,
+    privateKey,
+    publicKey,
     publicKeyJwk: publicJwk as Record<string, unknown>,
   }
   return _keys
