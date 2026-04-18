@@ -32,12 +32,18 @@ for EMAIL in test2@kodo.com test3@kodo.com; do
   fi
 done
 
-# ── 2. Verify email flags ─────────────────────────────────
+# ── 2. Set profile metadata + email verified flags ─────────────
 psql <<'SQL'
 UPDATE auth.users SET email_verified = true
 WHERE email IN ('test2@kodo.com', 'test3@kodo.com');
+
+UPDATE profiles SET display_name = 'Provider Test', first_name = 'Provider', last_name = 'Test'
+WHERE email = 'test3@kodo.com';
+
+UPDATE profiles SET display_name = 'Customer Test', first_name = 'Customer', last_name = 'Test'
+WHERE email = 'test2@kodo.com';
 SQL
-echo "  ✓ email_verified flags set"
+echo "  ✓ profile metadata + email flags set"
 
 # ── 3. Verify profiles exist (auth-service creates them on register) ──
 PROFILE_COUNT=$(psql -tA <<'SQL'
@@ -65,11 +71,11 @@ BEGIN
 
   -- Reuse existing test community or create new
   SELECT id INTO v_community_id FROM communities
-  WHERE community_name = 'Test Community' AND created_by_profile_id = v_provider_id;
+  WHERE community_name = 'Houmet lem3alem' AND created_by_profile_id = v_provider_id;
 
   IF v_community_id IS NULL THEN
     INSERT INTO communities (created_by_profile_id, community_name, access_type)
-    VALUES (v_provider_id, 'Test Community', 'invite_only')
+    VALUES (v_provider_id, 'Houmet lem3alem', 'invite_only')
     RETURNING id INTO v_community_id;
     RAISE NOTICE '  → created community %', v_community_id;
   ELSE
