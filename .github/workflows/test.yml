@@ -124,9 +124,10 @@ jobs:
             CREATE EXTENSION IF NOT EXISTS pgcrypto;
           "
 
-      - name: Push Prisma schema
+      - name: Push Prisma schema + generate client
         run: |
           cd nextserver && pnpm install --frozen-lockfile
+          DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma generate
           DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma db push --accept-data-loss
 
       - name: Apply functions + triggers
