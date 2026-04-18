@@ -89,6 +89,48 @@ BEGIN
 END $$;
 SQL
 
+# ── 4b. Create a direct conversation between the two users ────
+# Required by test-socket-e2e which broadcasts messages in a direct chat.
+psql <<'SQL'
+DO $$
+DECLARE
+  v_provider_id UUID;
+  v_customer_id UUID;
+  v_conversation_id UUID;
+BEGIN
+  SELECT id INTO v_provider_id FROM profiles WHERE email = 'test3@kodo.com';
+  SELECT id INTO v_customer_id FROM profiles WHERE email = 'test2@kodo.com';
+
+  -- Check if a direct conversation already exists between these two users
+  SELECT c.id INTO v_conversation_id
+  FROM conversations c
+  WHERE c.conversation_type = 'direct'
+    AND EXISTS (
+      SELECT 1 FROM conversation_participants cp
+      WHERE cp.conversation_id = c.id AND cp.profile_id = v_provider_id
+    )
+    AND EXISTS (
+      SELECT 1 FROM conversation_participants cp
+      WHERE cp.conversation_id = c.id AND cp.profile_id = v_customer_id
+    )
+  LIMIT 1;
+
+  IF v_conversation_id IS NULL THEN
+    INSERT INTO conversations (conversation_type, created_by_profile_id)
+    VALUES ('direct', v_provider_id)
+    RETURNING id INTO v_conversation_id;
+
+    INSERT INTO conversation_participants (conversation_id, profile_id)
+    VALUES (v_conversation_id, v_provider_id), (v_conversation_id, v_customer_id);
+
+    RAISE NOTICE '  → created direct conversation %', v_conversation_id;
+  ELSE
+    RAISE NOTICE '  → direct conversation % already exists', v_conversation_id;
+  END IF;
+END $$;
+SQL
+echo "  ✓ direct conversation ready"
+
 # ── 5. Verify memberships are correct ──────────────────────
 psql -tA <<'SQL'
 SELECT 'provider: ' || cm.membership_status || ' can_post=' || cm.can_post_offerings
