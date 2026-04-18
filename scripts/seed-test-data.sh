@@ -2,8 +2,6 @@
 # =============================================================================
 # Seed test data for e2e tests. Works against a fresh empty DB.
 # Expects the full stack to be running (auth-service + postgres).
-#
-# Usage: ./scripts/seed-test-data.sh
 # =============================================================================
 set -euo pipefail
 
@@ -11,6 +9,11 @@ AUTH_URL="${AUTH_SERVICE_URL:-http://localhost:3004}"
 DB_CONTAINER="${DB_CONTAINER:-kodo-postgres}"
 DB_USER="${DB_USER:-kodo}"
 DB_NAME="${DB_NAME:-kodo}"
+
+psql() {
+  docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" \
+    -v ON_ERROR_STOP=1 --echo-errors "$@"
+}
 
 echo "→ Seeding test data..."
 
@@ -29,15 +32,28 @@ for EMAIL in test2@kodo.com test3@kodo.com; do
   fi
 done
 
-# ── 2. Verify email flags (skip email verification for tests) ─
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -q <<'SQL'
+# ── 2. Verify email flags ─────────────────────────────────
+psql <<'SQL'
 UPDATE auth.users SET email_verified = true
-WHERE email IN ('test2@kodo.com', 'test3@kodo.com') AND email_verified = false;
+WHERE email IN ('test2@kodo.com', 'test3@kodo.com');
 SQL
-echo "  ✓ email_verified set to true"
+echo "  ✓ email_verified flags set"
 
-# ── 3. Create test community + memberships ──────────────────
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -q <<'SQL'
+# ── 3. Verify profiles exist (auth-service creates them on register) ──
+PROFILE_COUNT=$(psql -tA <<'SQL'
+SELECT count(*) FROM profiles WHERE email IN ('test2@kodo.com', 'test3@kodo.com');
+SQL
+)
+if [ "$PROFILE_COUNT" != "2" ]; then
+  echo "  ✗ Expected 2 profiles, found $PROFILE_COUNT"
+  exit 1
+fi
+echo "  ✓ 2 profiles exist"
+
+# ── 4. Create community + add customer as member ────────────
+# The add_creator_as_owner trigger auto-inserts the provider as owner
+# with can_post_offerings=true. We just add the customer.
+psql <<'SQL'
 DO $$
 DECLARE
   v_provider_id UUID;
@@ -47,11 +63,7 @@ BEGIN
   SELECT id INTO v_provider_id FROM profiles WHERE email = 'test3@kodo.com';
   SELECT id INTO v_customer_id FROM profiles WHERE email = 'test2@kodo.com';
 
-  IF v_provider_id IS NULL OR v_customer_id IS NULL THEN
-    RAISE EXCEPTION 'Test profiles not found — did auth/register fail?';
-  END IF;
-
-  -- Create community if not exists
+  -- Reuse existing test community or create new
   SELECT id INTO v_community_id FROM communities
   WHERE community_name = 'Test Community' AND created_by_profile_id = v_provider_id;
 
@@ -59,22 +71,43 @@ BEGIN
     INSERT INTO communities (created_by_profile_id, community_name, access_type)
     VALUES (v_provider_id, 'Test Community', 'invite_only')
     RETURNING id INTO v_community_id;
+    RAISE NOTICE '  → created community %', v_community_id;
+  ELSE
+    RAISE NOTICE '  → community % already exists', v_community_id;
   END IF;
 
-  -- The add_creator_as_owner_on_community_create trigger already inserted
-  -- the provider as owner. Update it to grant posting permissions.
-  UPDATE community_members
-  SET can_post_offerings = true, can_invite_members = true, membership_status = 'active'
-  WHERE community_id = v_community_id AND profile_id = v_provider_id;
-
-  -- Add customer as active member
+  -- Add customer (provider is auto-added by trigger)
   INSERT INTO community_members (community_id, profile_id, member_role, membership_status, join_method)
-  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct')
+  VALUES (v_community_id, v_customer_id, 'member', 'active', 'direct_invite')
   ON CONFLICT DO NOTHING;
-
-  RAISE NOTICE 'community=% provider=% customer=%', v_community_id, v_provider_id, v_customer_id;
 END $$;
 SQL
-echo "  ✓ community + memberships created"
+
+# ── 5. Verify memberships are correct ──────────────────────
+psql -tA <<'SQL'
+SELECT 'provider: ' || cm.membership_status || ' can_post=' || cm.can_post_offerings
+FROM community_members cm
+JOIN profiles p ON p.id = cm.profile_id
+WHERE p.email = 'test3@kodo.com' AND cm.member_role = 'owner';
+
+SELECT 'customer: ' || cm.membership_status
+FROM community_members cm
+JOIN profiles p ON p.id = cm.profile_id
+WHERE p.email = 'test2@kodo.com';
+SQL
+
+# Assert provider has posting rights
+HAS_POSTING=$(psql -tA <<'SQL'
+SELECT COUNT(*) FROM community_members cm
+JOIN profiles p ON p.id = cm.profile_id
+WHERE p.email = 'test3@kodo.com'
+  AND cm.membership_status = 'active'
+  AND cm.can_post_offerings = true;
+SQL
+)
+if [ "$HAS_POSTING" != "1" ]; then
+  echo "  ✗ Provider doesn't have active membership with can_post_offerings=true"
+  exit 1
+fi
 
 echo "→ Seed complete"
