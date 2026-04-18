@@ -124,11 +124,11 @@ jobs:
             CREATE EXTENSION IF NOT EXISTS pgcrypto;
           "
 
-      - name: Push Prisma schema + generate client
+      - name: Apply Prisma migrations + generate client
         run: |
           cd nextserver && pnpm install --frozen-lockfile
           DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma generate
-          DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma db push --accept-data-loss
+          DATABASE_URL="postgresql://kodo:testpassword@localhost:5432/kodo" npx prisma migrate deploy
 
       - name: Apply functions + triggers
         run: docker exec -i kodo-postgres psql -U kodo -d kodo < db/functions.sql
@@ -140,6 +140,10 @@ jobs:
           ./scripts/seed-test-data.sh
 
       # Run E2E suites
+      - name: E2E — Auth flow
+        working-directory: nextserver
+        run: npx tsx scripts/test-auth-e2e.ts
+
       - name: E2E — Booking flow
         working-directory: nextserver
         run: npx tsx scripts/test-booking-e2e.ts

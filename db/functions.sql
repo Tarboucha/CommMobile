@@ -2,7 +2,7 @@
 -- Application functions and triggers
 -- =============================================================================
 
-CREATE FUNCTION public.add_community_creator_as_owner() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.add_community_creator_as_owner() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -29,7 +29,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_booking_conversation(p_booking_id uuid, p_creator_profile_id uuid) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.create_booking_conversation(p_booking_id uuid, p_creator_profile_id uuid) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -81,7 +81,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_booking_conversation_with_request(p_booking_id uuid, p_booking jsonb, p_items jsonb) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.create_booking_conversation_with_request(p_booking_id uuid, p_booking jsonb, p_items jsonb) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -223,7 +223,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_booking_with_items(p_booking jsonb, p_items jsonb) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.create_booking_with_items(p_booking jsonb, p_items jsonb) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -261,7 +261,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_community_conversation() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.create_community_conversation() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -278,7 +278,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_direct_conversation(p_other_profile_id uuid, p_profile_id uuid) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.create_direct_conversation(p_other_profile_id uuid, p_profile_id uuid) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -336,7 +336,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.create_schedule_snapshot(p_booking_item_id uuid, p_item jsonb) RETURNS void
+CREATE OR REPLACE FUNCTION public.create_schedule_snapshot(p_booking_item_id uuid, p_item jsonb) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -427,7 +427,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.generate_booking_number() RETURNS text
+CREATE OR REPLACE FUNCTION public.generate_booking_number() RETURNS text
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -445,7 +445,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_available_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
+CREATE OR REPLACE FUNCTION public.get_available_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 DECLARE
@@ -464,7 +464,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_booked_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
+CREATE OR REPLACE FUNCTION public.get_booked_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 DECLARE
@@ -480,13 +480,13 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_current_profile_id() RETURNS uuid
+CREATE OR REPLACE FUNCTION public.get_current_profile_id() RETURNS uuid
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT id FROM profiles WHERE auth_user_id = auth.uid()
 $$;
 
-CREATE FUNCTION public.get_effective_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
+CREATE OR REPLACE FUNCTION public.get_effective_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 DECLARE
@@ -515,7 +515,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_offering_approximate_location(p_offering_id uuid) RETURNS public.approximate_location
+CREATE OR REPLACE FUNCTION public.get_offering_approximate_location(p_offering_id uuid) RETURNS public.approximate_location
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 DECLARE
@@ -551,7 +551,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_offerings_approximate_locations(p_offering_ids uuid[]) RETURNS TABLE(offering_id uuid, city text, state text, country text, approximate_latitude numeric, approximate_longitude numeric)
+CREATE OR REPLACE FUNCTION public.get_offerings_approximate_locations(p_offering_ids uuid[]) RETURNS TABLE(offering_id uuid, city text, state text, country text, approximate_latitude numeric, approximate_longitude numeric)
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 BEGIN
@@ -573,7 +573,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.get_time_slots_for_date(p_schedule_id uuid, p_instance_date date) RETURNS TABLE(slot_start_time time without time zone, slot_end_time time without time zone, slots_available integer, slots_booked integer, is_available boolean)
+CREATE OR REPLACE FUNCTION public.get_time_slots_for_date(p_schedule_id uuid, p_instance_date date) RETURNS TABLE(slot_start_time time without time zone, slot_end_time time without time zone, slots_available integer, slots_booked integer, is_available boolean)
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
 DECLARE
@@ -640,7 +640,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.handle_auth_user_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.handle_auth_user_update() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -683,7 +683,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.handle_new_user() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -739,7 +739,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.handle_user_update() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.handle_user_update() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -757,7 +757,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.increment_offering_version() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.increment_offering_version() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -766,7 +766,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.insert_booking(p_booking jsonb) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.insert_booking(p_booking jsonb) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -812,7 +812,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.insert_booking_aux_snapshots(p_booking_id uuid, p_items jsonb) RETURNS void
+CREATE OR REPLACE FUNCTION public.insert_booking_aux_snapshots(p_booking_id uuid, p_items jsonb) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -966,7 +966,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.insert_booking_item(p_booking_id uuid, p_item jsonb) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.insert_booking_item(p_booking_id uuid, p_item jsonb) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1028,7 +1028,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.is_booking_customer(p_booking_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.is_booking_customer(p_booking_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1038,7 +1038,7 @@ CREATE FUNCTION public.is_booking_customer(p_booking_id uuid) RETURNS boolean
   )
 $$;
 
-CREATE FUNCTION public.is_booking_provider(p_booking_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.is_booking_provider(p_booking_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1048,7 +1048,7 @@ CREATE FUNCTION public.is_booking_provider(p_booking_id uuid) RETURNS boolean
   )
 $$;
 
-CREATE FUNCTION public.is_community_admin(p_community_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.is_community_admin(p_community_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1060,7 +1060,7 @@ CREATE FUNCTION public.is_community_admin(p_community_id uuid) RETURNS boolean
   )
 $$;
 
-CREATE FUNCTION public.is_community_member(p_community_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.is_community_member(p_community_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1071,7 +1071,7 @@ CREATE FUNCTION public.is_community_member(p_community_id uuid) RETURNS boolean
   )
 $$;
 
-CREATE FUNCTION public.is_conversation_participant(p_conversation_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.is_conversation_participant(p_conversation_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1083,7 +1083,7 @@ CREATE FUNCTION public.is_conversation_participant(p_conversation_id uuid) RETUR
   )
 $$;
 
-CREATE FUNCTION public.join_community_via_invite_link(p_token text, p_profile_id uuid) RETURNS jsonb
+CREATE OR REPLACE FUNCTION public.join_community_via_invite_link(p_token text, p_profile_id uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -1153,7 +1153,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.notify_new_message() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.notify_new_message() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1181,7 +1181,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.notify_new_notification() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.notify_new_notification() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1210,7 +1210,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.notify_on_booking_status_change() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.notify_on_booking_status_change() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1371,7 +1371,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.release_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer) RETURNS void
+CREATE OR REPLACE FUNCTION public.release_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -1385,7 +1385,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.release_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer, p_slot_start_time time without time zone) RETURNS void
+CREATE OR REPLACE FUNCTION public.release_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer, p_slot_start_time time without time zone) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -1399,7 +1399,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.release_slots_for_range(p_schedule_id uuid, p_start_date date, p_end_date date, p_quantity integer) RETURNS void
+CREATE OR REPLACE FUNCTION public.release_slots_for_range(p_schedule_id uuid, p_start_date date, p_end_date date, p_quantity integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1418,7 +1418,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.remove_member_from_conversation() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.remove_member_from_conversation() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1457,7 +1457,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.reserve_item_slots(p_item jsonb) RETURNS void
+CREATE OR REPLACE FUNCTION public.reserve_item_slots(p_item jsonb) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1509,7 +1509,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.reserve_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer) RETURNS void
+CREATE OR REPLACE FUNCTION public.reserve_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1560,7 +1560,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.reserve_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer, p_slot_start_time time without time zone) RETURNS void
+CREATE OR REPLACE FUNCTION public.reserve_slots_for_date(p_schedule_id uuid, p_instance_date date, p_quantity integer, p_slot_start_time time without time zone) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1612,7 +1612,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.reserve_slots_for_range(p_schedule_id uuid, p_start_date date, p_end_date date, p_quantity integer) RETURNS void
+CREATE OR REPLACE FUNCTION public.reserve_slots_for_range(p_schedule_id uuid, p_start_date date, p_end_date date, p_quantity integer) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1631,7 +1631,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.return_loan_item(p_booking_item_id uuid) RETURNS void
+CREATE OR REPLACE FUNCTION public.return_loan_item(p_booking_item_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1693,7 +1693,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.set_message_expiration() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.set_message_expiration() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1712,7 +1712,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.shares_community_with_current_user(p_profile_id uuid) RETURNS boolean
+CREATE OR REPLACE FUNCTION public.shares_community_with_current_user(p_profile_id uuid) RETURNS boolean
     LANGUAGE sql STABLE SECURITY DEFINER
     AS $$
   SELECT EXISTS (
@@ -1725,7 +1725,7 @@ CREATE FUNCTION public.shares_community_with_current_user(p_profile_id uuid) RET
   )
 $$;
 
-CREATE FUNCTION public.snapshot_address_from(p_address_id uuid) RETURNS uuid
+CREATE OR REPLACE FUNCTION public.snapshot_address_from(p_address_id uuid) RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1767,7 +1767,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.sync_member_to_conversation_participant() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.sync_member_to_conversation_participant() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1800,7 +1800,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.tr_booking_status_update_message() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.tr_booking_status_update_message() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1864,7 +1864,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.update_address_location() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.update_address_location() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -1873,7 +1873,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.update_community_member_count() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.update_community_member_count() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -1901,7 +1901,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.update_conversation_last_message() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.update_conversation_last_message() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -1914,7 +1914,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
@@ -1923,7 +1923,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.validate_booking_not_own_offering() RETURNS trigger
+CREATE OR REPLACE FUNCTION public.validate_booking_not_own_offering() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 BEGIN
@@ -1939,7 +1939,7 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.validate_offering_version(p_item jsonb) RETURNS void
+CREATE OR REPLACE FUNCTION public.validate_offering_version(p_item jsonb) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
     AS $$
 DECLARE
@@ -1970,57 +1970,84 @@ $$;
 -- Triggers
 -- =============================================================================
 
+DROP TRIGGER IF EXISTS add_creator_as_owner_on_community_create ON public.communities;
 CREATE TRIGGER add_creator_as_owner_on_community_create AFTER INSERT ON public.communities FOR EACH ROW EXECUTE FUNCTION public.add_community_creator_as_owner();
 
+DROP TRIGGER IF EXISTS create_conversation_on_community_insert ON public.communities;
 CREATE TRIGGER create_conversation_on_community_insert AFTER INSERT ON public.communities FOR EACH ROW EXECUTE FUNCTION public.create_community_conversation();
 
+DROP TRIGGER IF EXISTS increment_offering_version_on_update ON public.offerings;
 CREATE TRIGGER increment_offering_version_on_update BEFORE UPDATE ON public.offerings FOR EACH ROW WHEN ((old.* IS DISTINCT FROM new.*)) EXECUTE FUNCTION public.increment_offering_version();
 
+DROP TRIGGER IF EXISTS notify_on_message_insert ON public.messages;
 CREATE TRIGGER notify_on_message_insert AFTER INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION public.notify_new_message();
 
+DROP TRIGGER IF EXISTS notify_on_notification_insert ON public.notifications;
 CREATE TRIGGER notify_on_notification_insert AFTER INSERT ON public.notifications FOR EACH ROW EXECUTE FUNCTION public.notify_new_notification();
 
+DROP TRIGGER IF EXISTS prevent_booking_own_offering ON public.booking_items;
 CREATE TRIGGER prevent_booking_own_offering BEFORE INSERT ON public.booking_items FOR EACH ROW EXECUTE FUNCTION public.validate_booking_not_own_offering();
 
+DROP TRIGGER IF EXISTS remove_member_from_conversation_on_leave ON public.community_members;
 CREATE TRIGGER remove_member_from_conversation_on_leave AFTER UPDATE ON public.community_members FOR EACH ROW EXECUTE FUNCTION public.remove_member_from_conversation();
 
+DROP TRIGGER IF EXISTS set_address_location ON public.addresses;
 CREATE TRIGGER set_address_location BEFORE INSERT OR UPDATE OF latitude, longitude ON public.addresses FOR EACH ROW EXECUTE FUNCTION public.update_address_location();
 
+DROP TRIGGER IF EXISTS set_message_expiration_on_insert ON public.messages;
 CREATE TRIGGER set_message_expiration_on_insert BEFORE INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION public.set_message_expiration();
 
+DROP TRIGGER IF EXISTS sync_member_to_conversation_on_join ON public.community_members;
 CREATE TRIGGER sync_member_to_conversation_on_join AFTER INSERT OR UPDATE ON public.community_members FOR EACH ROW EXECUTE FUNCTION public.sync_member_to_conversation_participant();
 
+DROP TRIGGER IF EXISTS tr_booking_status_change ON public.bookings;
 CREATE TRIGGER tr_booking_status_change AFTER INSERT OR UPDATE ON public.bookings FOR EACH ROW EXECUTE FUNCTION public.notify_on_booking_status_change();
 
+DROP TRIGGER IF EXISTS tr_booking_status_change_message ON public.bookings;
 CREATE TRIGGER tr_booking_status_change_message AFTER UPDATE OF booking_status ON public.bookings FOR EACH ROW EXECUTE FUNCTION public.tr_booking_status_update_message();
 
+DROP TRIGGER IF EXISTS update_addresses_updated_at ON public.addresses;
 CREATE TRIGGER update_addresses_updated_at BEFORE UPDATE ON public.addresses FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_availability_schedules_updated_at ON public.availability_schedules;
 CREATE TRIGGER update_availability_schedules_updated_at BEFORE UPDATE ON public.availability_schedules FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_bookings_updated_at ON public.bookings;
 CREATE TRIGGER update_bookings_updated_at BEFORE UPDATE ON public.bookings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_communities_updated_at ON public.communities;
 CREATE TRIGGER update_communities_updated_at BEFORE UPDATE ON public.communities FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_community_invitations_updated_at ON public.community_invitations;
 CREATE TRIGGER update_community_invitations_updated_at BEFORE UPDATE ON public.community_invitations FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_community_members_updated_at ON public.community_members;
 CREATE TRIGGER update_community_members_updated_at BEFORE UPDATE ON public.community_members FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_community_posts_updated_at ON public.community_posts;
 CREATE TRIGGER update_community_posts_updated_at BEFORE UPDATE ON public.community_posts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_conversation_on_new_message ON public.messages;
 CREATE TRIGGER update_conversation_on_new_message AFTER INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION public.update_conversation_last_message();
 
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON public.conversations;
 CREATE TRIGGER update_conversations_updated_at BEFORE UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_member_count_on_change ON public.community_members;
 CREATE TRIGGER update_member_count_on_change AFTER INSERT OR DELETE OR UPDATE ON public.community_members FOR EACH ROW EXECUTE FUNCTION public.update_community_member_count();
 
+DROP TRIGGER IF EXISTS update_offerings_updated_at ON public.offerings;
 CREATE TRIGGER update_offerings_updated_at BEFORE UPDATE ON public.offerings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_reviews_updated_at ON public.reviews;
 CREATE TRIGGER update_reviews_updated_at BEFORE UPDATE ON public.reviews FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_schedule_exceptions_updated_at ON public.schedule_exceptions;
 CREATE TRIGGER update_schedule_exceptions_updated_at BEFORE UPDATE ON public.schedule_exceptions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_schedule_instances_updated_at ON public.schedule_instances;
 CREATE TRIGGER update_schedule_instances_updated_at BEFORE UPDATE ON public.schedule_instances FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 

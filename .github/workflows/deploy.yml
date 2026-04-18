@@ -32,8 +32,21 @@ jobs:
             echo "→ Building and starting containers..."
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 
-            echo "→ Running migrations..."
-            docker compose exec -T kodo-api npx prisma migrate deploy 2>/dev/null || true
+            echo "→ Waiting for DB..."
+            until docker exec kodo-postgres pg_isready -U kodo -q; do sleep 2; done
+
+            echo "→ Installing extensions (idempotent)..."
+            docker exec -i kodo-postgres psql -U kodo -d kodo <<'SQL'
+              CREATE EXTENSION IF NOT EXISTS postgis;
+              CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            SQL
+
+            echo "→ Applying Prisma migrations..."
+            docker compose exec -T kodo-api npx prisma migrate deploy
+
+            echo "→ Applying SQL functions + triggers (idempotent)..."
+            docker exec -i kodo-postgres psql -U kodo -d kodo < db/functions.sql
 
             echo "→ Health checks..."
             sleep 5
