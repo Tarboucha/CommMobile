@@ -67,6 +67,26 @@ jobs:
         with:
           version: 10
 
+      # Create .env with test values for docker-compose
+      - name: Create test .env
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL=postgresql://kodo:testpassword@postgres:5432/kodo
+          POSTGRES_PASSWORD=testpassword
+          SMTP_HOST=localhost
+          SMTP_PORT=1025
+          SMTP_USER=test
+          SMTP_PASS=test
+          SMTP_FROM=test@localhost
+          APP_URL=http://localhost:3002
+          R2_ENDPOINT=http://fake-r2:9000
+          R2_ACCESS_KEY_ID=test
+          R2_SECRET_ACCESS_KEY=test
+          R2_BUCKET=test
+          R2_PUBLIC_URL=http://localhost
+          EOF
+          touch nextserver/.env socket-server/.env
+
       # Start the full stack
       - name: Start Docker stack
         run: docker compose up -d --build
