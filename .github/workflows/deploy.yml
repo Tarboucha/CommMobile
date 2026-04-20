@@ -39,7 +39,9 @@ jobs:
             docker exec kodo-postgres psql -U kodo -d kodo -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 
             echo "→ Applying Prisma migrations..."
-            docker compose exec -T kodo-api npx prisma migrate deploy
+            # Redirect stdin to /dev/null so `exec -T` doesn't consume the rest
+            # of this heredoc as its stdin (which would kill subsequent steps).
+            docker compose exec -T kodo-api npx prisma migrate deploy < /dev/null
 
             echo "→ Applying SQL functions + triggers (idempotent)..."
             docker exec -i kodo-postgres psql -U kodo -d kodo < db/functions.sql
