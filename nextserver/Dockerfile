@@ -58,6 +58,8 @@ COPY --from=build --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=build --chown=nextjs:nodejs /app/package.json ./
 COPY --from=build --chown=nextjs:nodejs /app/src ./src
 COPY --from=build --chown=nextjs:nodejs /app/prisma ./prisma
+# Required for `prisma migrate deploy` at runtime (Prisma 7 reads URL from config).
+COPY --from=build --chown=nextjs:nodejs /app/prisma.config.ts ./
 
 USER nextjs
 
