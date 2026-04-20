@@ -10,6 +10,10 @@ jobs:
   typecheck:
     name: Typecheck & Build
     runs-on: ubuntu-latest
+    # Prisma 7 requires DATABASE_URL even for `prisma generate` (no connection
+    # happens — it just parses the config). A dummy URL satisfies env("DATABASE_URL").
+    env:
+      DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
     steps:
       - uses: actions/checkout@v4
 
