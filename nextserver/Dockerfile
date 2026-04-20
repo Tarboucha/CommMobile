@@ -29,10 +29,13 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN npx prisma generate
-
+# Prisma 7 requires DATABASE_URL even for `prisma generate` and `next build`,
+# though neither actually connects. Dummy URL satisfies env("DATABASE_URL").
+ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN npx prisma generate
 RUN pnpm build
 
 # =============================================================================
