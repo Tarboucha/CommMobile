@@ -36,11 +36,7 @@ jobs:
             until docker exec kodo-postgres pg_isready -U kodo -q; do sleep 2; done
 
             echo "→ Installing extensions (idempotent)..."
-            docker exec -i kodo-postgres psql -U kodo -d kodo <<'SQL'
-              CREATE EXTENSION IF NOT EXISTS postgis;
-              CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-              CREATE EXTENSION IF NOT EXISTS pgcrypto;
-            SQL
+            docker exec kodo-postgres psql -U kodo -d kodo -c 'CREATE EXTENSION IF NOT EXISTS postgis; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 
             echo "→ Applying Prisma migrations..."
             docker compose exec -T kodo-api npx prisma migrate deploy

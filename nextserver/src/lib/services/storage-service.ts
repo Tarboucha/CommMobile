@@ -11,7 +11,7 @@
  * Transport-agnostic: throws domain errors, never NextResponse.
  */
 
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { s3, BUCKET } from "@/lib/storage/s3";
 import {
@@ -73,6 +73,42 @@ async function deleteR2Object(key: string): Promise<void> {
   }
 }
 
+/**
+ * HEAD-check an uploaded R2 object before committing a DB row.
+ *
+ * Signed PUT URLs can't enforce a max size (S3 signs exact Content-Length,
+ * not a range), so a malicious client could upload a file much larger than
+ * the per-entity cap. This verifies the object exists and is within limits;
+ * if it's oversize we delete it before throwing so we don't leave orphans.
+ *
+ * Throws ValidationError on any problem — object missing, size unknown,
+ * or size over cap.
+ */
+async function verifyUploadedObject(key: string, maxBytes: number): Promise<void> {
+  let size: number | undefined;
+  try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    size = head.ContentLength;
+  } catch (err: unknown) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e?.name === "NotFound" || e?.$metadata?.httpStatusCode === 404) {
+      throw new ValidationError("Uploaded file not found at the expected key");
+    }
+    throw err;
+  }
+
+  if (size === undefined) {
+    await deleteR2Object(key);
+    throw new ValidationError("Uploaded file size could not be determined");
+  }
+  if (size > maxBytes) {
+    await deleteR2Object(key);
+    throw new ValidationError(
+      `Uploaded file is ${size} bytes, exceeds limit of ${maxBytes} bytes`
+    );
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //   AVATAR
 // ═══════════════════════════════════════════════════════════════════════════
@@ -111,6 +147,8 @@ export async function replaceAvatar(profileId: string, key: string) {
   if (!key.startsWith(`${STORAGE_PREFIXES.PROFILE_AVATARS}/${profileId}/`)) {
     throw new ValidationError("Avatar key does not belong to this profile");
   }
+
+  await verifyUploadedObject(key, FILE_SIZE_LIMITS.AVATAR);
 
   const existing = await prisma.profiles.findUnique({
     where: { id: profileId },
@@ -215,6 +253,8 @@ export async function persistOfferingImage(
     );
   }
 
+  await verifyUploadedObject(opts.key, FILE_SIZE_LIMITS.OFFERING_IMAGE);
+
   // First image auto-becomes primary unless caller explicitly opts out.
   const isPrimary = opts.makePrimary ?? count === 0;
 
@@ -311,6 +351,8 @@ export async function replaceCommunityImage(communityId: string, key: string) {
     throw new ValidationError("Community image key does not belong to this community");
   }
 
+  await verifyUploadedObject(key, FILE_SIZE_LIMITS.COMMUNITY_IMAGE);
+
   const existing = await prisma.communities.findUnique({
     where: { id: communityId },
     select: { community_image_url: true },
@@ -375,6 +417,8 @@ export async function replaceCommunityPostImage(
   if (!key.startsWith(`${STORAGE_PREFIXES.COMMUNITY_POST_IMAGES}/${post.community_id}/${post.id}/`)) {
     throw new ValidationError("Key does not belong to this post");
   }
+
+  await verifyUploadedObject(key, FILE_SIZE_LIMITS.COMMUNITY_POST_IMAGE);
 
   const existing = await prisma.community_posts.findUnique({
     where: { id: post.id },
@@ -469,6 +513,8 @@ export async function persistMessageAttachment(
       `Message already has the maximum of ${IMAGE_COUNT_LIMITS.MESSAGE_ATTACHMENT} attachments`
     );
   }
+
+  await verifyUploadedObject(opts.key, FILE_SIZE_LIMITS.MESSAGE_ATTACHMENT);
 
   // expires_at defaults to `now() + 72 hours` via DB column default.
   return prisma.message_attachments.create({
