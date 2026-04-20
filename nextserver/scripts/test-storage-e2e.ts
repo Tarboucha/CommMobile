@@ -133,7 +133,7 @@ async function main() {
 
   // ── 3. Public URL reachable (if r2.dev enabled) ──────────────────────────
   section('3. Verify public URL')
-  if (R2_PUBLIC_URL && !R2_PUBLIC_URL.includes('cdn.kodo.app')) {
+  if (R2_PUBLIC_URL && !R2_PUBLIC_URL.includes('cdn.comchefs.cloud')) {
     try {
       const headRes = await fetch(`${R2_PUBLIC_URL}/${avatar1.key}`, { method: 'HEAD' })
       if (headRes.ok) {
@@ -161,7 +161,7 @@ async function main() {
   })
   assert(dbAfter.avatar_url === avatar2.key, 'DB points at new key')
   // The old key should have been deleted from R2. Best-effort check.
-  if (R2_PUBLIC_URL && !R2_PUBLIC_URL.includes('cdn.kodo.app')) {
+  if (R2_PUBLIC_URL && !R2_PUBLIC_URL.includes('cdn.comchefs.cloud')) {
     try {
       const check = await fetch(`${R2_PUBLIC_URL}/${avatar1.key}`, { method: 'HEAD' })
       if (check.status === 404) ok('old avatar purged from R2 (404)')

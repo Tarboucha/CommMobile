@@ -9,10 +9,10 @@ const transporter = nodemailer.createTransport({
     : undefined,
 })
 
-const FROM = process.env.SMTP_FROM || 'noreply@kodo.app'
+const FROM = process.env.SMTP_FROM || 'noreply@comchefs.cloud'
 
 export async function sendVerificationEmail(email: string, token: string): Promise<void> {
-  const verifyUrl = `${process.env.APP_URL || 'https://kodo.app'}/verify-email?token=${token}`
+  const verifyUrl = `${process.env.APP_URL || 'https://api.comchefs.cloud'}/verify-email?token=${token}`
 
   await transporter.sendMail({
     from: FROM,
@@ -28,7 +28,7 @@ export async function sendVerificationEmail(email: string, token: string): Promi
 }
 
 export async function sendPasswordResetEmail(email: string, token: string): Promise<void> {
-  const resetUrl = `${process.env.APP_URL || 'https://kodo.app'}/reset-password?token=${token}`
+  const resetUrl = `${process.env.APP_URL || 'https://api.comchefs.cloud'}/reset-password?token=${token}`
 
   await transporter.sendMail({
     from: FROM,

@@ -480,12 +480,6 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.get_current_profile_id() RETURNS uuid
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT id FROM profiles WHERE auth_user_id = auth.uid()
-$$;
-
 CREATE OR REPLACE FUNCTION public.get_effective_slots(p_schedule_id uuid, p_instance_date date) RETURNS integer
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     AS $$
@@ -512,42 +506,6 @@ BEGIN
 
   -- Use override if present, else the schedule default
   RETURN COALESCE(v_exception.override_slots, v_schedule.slots_available);
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.get_offering_approximate_location(p_offering_id uuid) RETURNS public.approximate_location
-    LANGUAGE plpgsql STABLE SECURITY DEFINER
-    AS $$
-DECLARE
-  result approximate_location;
-  addr RECORD;
-BEGIN
-  -- Get the offering's pickup address
-  SELECT a.city, a.state, a.country, a.latitude, a.longitude, o.id AS offering_id
-  INTO addr
-  FROM offerings o
-  JOIN addresses a ON o.pickup_address_id = a.id
-  WHERE o.id = p_offering_id
-    AND o.status = 'active'
-    AND a.visibility = 'offering_pickup'
-    AND a.is_active = TRUE
-    AND a.deleted_at IS NULL;
-
-  IF addr IS NULL THEN
-    RETURN NULL;
-  END IF;
-
-  -- Build result with randomized coordinates (~200m offset for privacy)
-  -- Uses offering_id as seed for consistent randomization
-  result.city := addr.city;
-  result.state := addr.state;
-  result.country := addr.country;
-  result.approximate_latitude := addr.latitude +
-    (('x' || SUBSTR(MD5(addr.offering_id::TEXT), 1, 8))::BIT(32)::INT::DECIMAL / 2147483647 - 0.5) * 0.004;
-  result.approximate_longitude := addr.longitude +
-    (('x' || SUBSTR(MD5(addr.offering_id::TEXT || 'lng'), 1, 8))::BIT(32)::INT::DECIMAL / 2147483647 - 0.5) * 0.004;
-
-  RETURN result;
 END;
 $$;
 
@@ -1026,61 +984,6 @@ BEGIN
 
   RETURN v_booking_item_id;
 END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_booking_customer(p_booking_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM bookings
-    WHERE id = p_booking_id
-    AND customer_id = get_current_profile_id()
-  )
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_booking_provider(p_booking_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM bookings
-    WHERE id = p_booking_id
-    AND provider_id = get_current_profile_id()
-  )
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_community_admin(p_community_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM community_members
-    WHERE community_id = p_community_id
-    AND profile_id = get_current_profile_id()
-    AND membership_status = 'active'
-    AND member_role IN ('owner', 'admin')
-  )
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_community_member(p_community_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM community_members
-    WHERE community_id = p_community_id
-    AND profile_id = get_current_profile_id()
-    AND membership_status = 'active'
-  )
-$$;
-
-CREATE OR REPLACE FUNCTION public.is_conversation_participant(p_conversation_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM conversation_participants
-    WHERE conversation_id = p_conversation_id
-    AND profile_id = get_current_profile_id()
-    AND left_at IS NULL
-    AND removed_at IS NULL
-  )
 $$;
 
 CREATE OR REPLACE FUNCTION public.join_community_via_invite_link(p_token text, p_profile_id uuid) RETURNS jsonb
@@ -1710,19 +1613,6 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.shares_community_with_current_user(p_profile_id uuid) RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
-    AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM community_members cm1
-    JOIN community_members cm2 ON cm1.community_id = cm2.community_id
-    WHERE cm1.profile_id = p_profile_id
-    AND cm2.profile_id = get_current_profile_id()
-    AND cm1.membership_status = 'active'
-    AND cm2.membership_status = 'active'
-  )
 $$;
 
 CREATE OR REPLACE FUNCTION public.snapshot_address_from(p_address_id uuid) RETURNS uuid

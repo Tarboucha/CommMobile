@@ -5,7 +5,7 @@ import Constants from 'expo-constants';
 const isDev = __DEV__;
 const SOCKET_URL = isDev
   ? Constants.expoConfig?.extra?.socketUrl || process.env.EXPO_PUBLIC_SOCKET_URL || 'http://localhost:3002'
-  : Constants.expoConfig?.extra?.socketUrlProd || process.env.EXPO_PUBLIC_SOCKET_URL_PROD || 'https://api.kodo.app';
+  : Constants.expoConfig?.extra?.socketUrlProd || process.env.EXPO_PUBLIC_SOCKET_URL_PROD || 'https://api.comchefs.cloud';
 
 interface UseSocketOptions {
   token?: string;
@@ -24,8 +24,10 @@ export function useSocket(options: UseSocketOptions = {}) {
       return;
     }
 
-    // Create socket connection
+    // Create socket connection.
+    // nginx proxies /ws/ → socket-server root; path tells Socket.io where it's mounted.
     const socket = io(SOCKET_URL, {
+      path: '/ws/socket.io/',
       auth: {
         token,
         profileId,

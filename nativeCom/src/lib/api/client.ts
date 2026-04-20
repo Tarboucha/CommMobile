@@ -9,11 +9,11 @@ export { ApiClientError };
 const isDev = __DEV__;
 const API_URL = isDev
   ? Constants.expoConfig?.extra?.apiUrl || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3002'
-  : Constants.expoConfig?.extra?.apiUrlProd || process.env.EXPO_PUBLIC_API_URL_PROD || 'https://api.kodo.app';
+  : Constants.expoConfig?.extra?.apiUrlProd || process.env.EXPO_PUBLIC_API_URL_PROD || 'https://api.comchefs.cloud';
 
 const AUTH_URL = isDev
   ? process.env.EXPO_PUBLIC_AUTH_URL || 'http://localhost:3004'
-  : process.env.EXPO_PUBLIC_AUTH_URL_PROD || 'https://auth.kodo.app';
+  : process.env.EXPO_PUBLIC_AUTH_URL_PROD || 'https://api.comchefs.cloud';
 
 // ============================================================================
 // Token management via SecureStore

@@ -66,8 +66,8 @@ export default {
       socketUrl: process.env.EXPO_PUBLIC_SOCKET_URL || 'http://192.168.0.140:3002',
 
       // Production
-      apiUrlProd: process.env.EXPO_PUBLIC_API_URL_PROD || 'https://api.kodo.app',
-      socketUrlProd: process.env.EXPO_PUBLIC_SOCKET_URL_PROD || 'https://api.kodo.app',
+      apiUrlProd: process.env.EXPO_PUBLIC_API_URL_PROD || 'https://api.comchefs.cloud',
+      socketUrlProd: process.env.EXPO_PUBLIC_SOCKET_URL_PROD || 'https://api.comchefs.cloud',
 
       // Supabase - IMPORTANT: Use EXPO_PUBLIC_ vars for mobile (not SUPABASE_URL which is for backend proxy)
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://tfqnsdhgvpxjzerdbmim.supabase.co',
