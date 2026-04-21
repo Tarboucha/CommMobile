@@ -30,7 +30,11 @@ jobs:
             git pull origin main
 
             echo "→ Building and starting containers..."
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+            docker compose \
+              -f docker-compose.yml \
+              -f docker-compose.prod.yml \
+              -f docker-compose.monitoring.yml \
+              up --build -d
 
             echo "→ Waiting for DB..."
             until docker exec kodo-postgres pg_isready -U kodo -q; do sleep 2; done
