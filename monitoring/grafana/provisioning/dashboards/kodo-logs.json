@@ -1,0 +1,177 @@
+{
+  "uid": "kodo-logs",
+  "title": "KoDo — Logs & Errors",
+  "tags": ["kodo", "logs"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {"type": "loki", "uid": "loki"},
+        "query": "label_values(service)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {"text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Errors in last 15m (all services)",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service=~\".+\"} | json | level >= 50 [15m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Warnings in last 15m",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service=~\".+\"} | json | level = 40 [15m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 10}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Requests in last 15m",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum(count_over_time({service=~\".+\"} |~ \"request completed\" [15m]))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]}
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Services reporting logs",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "count(sum by (service) (count_over_time({service=~\".+\"} [15m])))",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {"values": false, "calcs": ["lastNotNull"]}
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Log volume per service",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "sum by (service) (rate({service=~\"$service\"} [1m]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Recent errors + warnings",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 12},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service=~\"$service\"} | json | level >= 40",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "All recent logs (filtered by service)",
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 24},
+      "targets": [
+        {
+          "datasource": {"type": "loki", "uid": "loki"},
+          "expr": "{service=~\"$service\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+# =============================================================================
+# Observability stack — Loki + Promtail + Grafana.
+# Brought up alongside the base stack:
+#
+#   Local (no prod override):
+#     docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#
+#   Production (with prod override):
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                    -f docker-compose.monitoring.yml up -d
+#
+# Access Grafana:
+#   Local:       http://localhost:3005
+#   VPS (SSH tunnel):  ssh -L 3005:127.0.0.1:3005 kodo@<vps-ip>
+# =============================================================================
+
+services:
+  # ─── Loki — log aggregation ──────────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: kodo-loki
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./monitoring/loki:/etc/loki:ro
+      - loki_data:/loki
+    restart: unless-stopped
+    # No healthcheck — Loki image is distroless (no wget/curl/sh in PATH).
+    # `docker ps` will show "up" but not "healthy"; that's fine.
+    # Promtail + Grafana use `depends_on: [loki]` without condition.
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  # ─── Promtail — log shipper ─────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    container_name: kodo-promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./monitoring/promtail:/etc/promtail:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # ─── Grafana — dashboards + Explore UI ──────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: kodo-grafana
+    ports:
+      # Loopback only — access via SSH tunnel on the VPS, directly in dev.
+      - "127.0.0.1:3005:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3005}
+      - GF_INSTALL_PLUGINS=
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    restart: unless-stopped
+    depends_on:
+      - loki
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+volumes:
+  loki_data:
+  grafana_data:

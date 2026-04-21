@@ -1,17 +1,21 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { log } from "@/lib/log";
 
 /**
  * GET /api/v1/health
  * Deep health check: verifies DB connectivity with `SELECT 1`.
  * Docker's HEALTHCHECK hits this every 30s; deploy scripts hit it post-deploy.
- * Returns 503 if the DB is unreachable, so an empty/broken schema no longer
- * masquerades as "healthy".
+ * Returns 503 if the DB is unreachable.
+ *
+ * Successful checks do NOT log (would generate significant noise at 30s cadence).
+ * Failures log at warn level so real DB outages surface in Loki/alerts.
  */
 export async function GET() {
   try {
     await prisma.$queryRaw`SELECT 1`;
-  } catch {
+  } catch (err) {
+    log.warn({ err }, "health check failed — DB query rejected");
     return NextResponse.json(
       {
         status: "unhealthy",

@@ -1,0 +1,38 @@
+# Grafana data sources — auto-provisioned on boot.
+#
+# Phase 1: Loki only.
+# Phase 2 will add Prometheus (uncomment the block below when ready).
+
+apiVersion: 1
+
+datasources:
+  # ─── Loki (logs) ────────────────────────────────────────────────────
+  - name: Loki
+    type: loki
+    access: proxy
+    uid: loki
+    url: http://loki:3100
+    isDefault: true
+    editable: true
+    jsonData:
+      maxLines: 5000
+      timeout: 60
+      # Derived fields: auto-link log mentions of a reqId to a filtered query
+      derivedFields:
+        - datasourceUid: loki
+          matcherRegex: 'reqId=([a-zA-Z0-9_-]+)'
+          name: "Trace request"
+          url: '/explore?left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice%3D~%5C%22.%2B%5C%22%7D+%7C+json+%7C+reqId%3D%5C%22${__value.raw}%5C%22%22%7D%5D'
+
+  # ─── Prometheus (metrics) — enable in Phase 2 ───────────────────────
+  # - name: Prometheus
+  #   type: prometheus
+  #   access: proxy
+  #   uid: prometheus
+  #   url: http://prometheus:9090
+  #   isDefault: false
+  #   editable: true
+  #   jsonData:
+  #     timeInterval: 30s
+  #     queryTimeout: 60s
+  #     httpMethod: POST

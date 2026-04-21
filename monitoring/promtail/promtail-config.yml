@@ -1,0 +1,98 @@
+# Promtail — ships Docker container stdout/stderr to Loki.
+#
+# Our services (auth-service, kodo-api, socket-server, worker) all emit
+# pino JSON. This config:
+#   1. Discovers Docker containers via Docker socket
+#   2. Tags each stream with container/service/project labels
+#   3. Parses the Docker JSON log wrapper, then the inner pino JSON
+#   4. Drops healthcheck + monitoring-stack noise
+#   5. Promotes level + method + status + component to Loki labels
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ─── Docker container logs ────────────────────────────────────────────
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+
+    relabel_configs:
+      # Required job label
+      - replacement: 'docker'
+        target_label: 'job'
+
+      # Container name (strip leading slash)
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: 'container'
+
+      # Docker compose service name — primary filter label
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+
+      # Docker compose project
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        target_label: 'project'
+
+      # Drop the monitoring stack's own logs from ingestion (prevents
+      # self-referential query logs from Grafana flooding Loki).
+      # Comment this out if you need to debug monitoring stack itself.
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        regex: 'grafana|loki|promtail'
+        action: drop
+
+    pipeline_stages:
+      # 1. Unwrap Docker JSON wrapper: {"log":"...","stream":"stdout","time":"..."}
+      - docker: {}
+
+      # 2. Parse the inner pino JSON.
+      #    Extracted fields are available to later stages (match, labels).
+      - json:
+          expressions:
+            level: level                # 30=info, 40=warn, 50=error, 60=fatal
+            msg: msg
+            reqId: reqId
+            userId: userId
+            component: component        # from log.child({ component })
+            method: 'req.method'
+            path: 'req.url'
+            status: 'res.statusCode'
+            duration_ms: responseTime
+            err_type: 'err.type'
+            err_code: 'err.code'
+
+      # 3. Drop healthcheck request/response pairs.
+      #    Matches the extracted `path` field (from step 2) against known
+      #    health endpoints. This correctly drops BOTH Fastify auto-logs
+      #    ("incoming request") AND response-complete lines, since both
+      #    share the same req.url.
+      - match:
+          selector: '{service=~".+"}'
+          stages:
+            - drop:
+                source: path
+                expression: '^/(api/v1/)?(health|ready|ping)/?$'
+                drop_counter_reason: 'healthcheck_probe'
+
+      # 4. Promote selected fields to Loki labels.
+      #    Keep this list small — each label × value increases index cardinality.
+      - labels:
+          level:
+          method:
+          status:
+          component:
+
+      # NOTE: no `output: source: msg` stage.
+      # Keeping the full pino JSON as the log body so queries like
+      #   {service="kodo-api"} | json | reqId="req-42"
+      # work. Grafana's Logs panel can set "line_format" per panel to
+      # show just {{.msg}} if the raw JSON is too noisy visually.
