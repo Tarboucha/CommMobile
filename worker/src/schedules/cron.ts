@@ -2,10 +2,11 @@ import { Cron } from 'croner'
 import { expireAttachments } from '../jobs/expire-attachments.js'
 import { orphanSweep } from '../jobs/orphan-sweep.js'
 import { log } from '../lib/logger.js'
+import { jobRunsTotal, jobDuration } from '../lib/metrics.js'
 
 /**
- * Wraps a job with logging + crash protection so a single bad run never
- * takes down the worker.
+ * Wraps a job with logging + metrics + crash protection so a single bad run
+ * never takes down the worker.
  */
 function safe(name: string, fn: () => Promise<unknown>) {
   const jobLog = log.child({ job: name })
@@ -14,9 +15,17 @@ function safe(name: string, fn: () => Promise<unknown>) {
     jobLog.info('job starting')
     try {
       const result = await fn()
-      jobLog.info({ result, durationMs: Date.now() - startedAt }, 'job finished')
+      const durationSec = (Date.now() - startedAt) / 1000
+      jobLog.info({ result, durationMs: durationSec * 1000 }, 'job finished')
+
+      jobRunsTotal.inc({ job: name, status: 'success' })
+      jobDuration.observe({ job: name }, durationSec)
     } catch (err) {
-      jobLog.error({ err, durationMs: Date.now() - startedAt }, 'job crashed')
+      const durationSec = (Date.now() - startedAt) / 1000
+      jobLog.error({ err, durationMs: durationSec * 1000 }, 'job crashed')
+
+      jobRunsTotal.inc({ job: name, status: 'failed' })
+      jobDuration.observe({ job: name }, durationSec)
     }
   }
 }

@@ -159,6 +159,11 @@ jobs:
       # Storage e2e skipped in CI — hits real R2, run locally:
       # cd nextserver && npx tsx scripts/test-storage-e2e.ts
 
+      # Security suites (scripts/security/) are NOT run in CI yet —
+      # they're still being refined against the real API. Run locally with:
+      #   npx tsx scripts/security/run-all.ts
+      # Wire into CI once all findings are triaged and assertions stabilized.
+
       # Cleanup
       - name: Teardown
         if: always()

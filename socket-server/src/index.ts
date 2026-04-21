@@ -7,9 +7,11 @@ import { PgNotifyManager } from './pg-notify/pg-notify-manager'
 import { registerListeners } from './pg-notify/listeners'
 import type { AuthenticatedSocket } from './types/socket'
 import { log } from './log'
+import { register, socketActiveConnections, socketConnectionsTotal } from './metrics'
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const HOSTNAME = process.env.HOSTNAME || '0.0.0.0'
+const METRICS_PORT = parseInt(process.env.METRICS_PORT || '9103', 10)
 
 async function startServer() {
   // 1. HTTP server — health check only, no framework needed
@@ -55,6 +57,9 @@ async function startServer() {
   io.on('connection', (socket) => {
     const authSocket = socket as AuthenticatedSocket
 
+    socketActiveConnections.inc()
+    socketConnectionsTotal.inc()
+
     ioLog.info({ socketId: socket.id, userId: authSocket.userId }, 'socket connected')
 
     // Join personal room for notifications
@@ -86,6 +91,7 @@ async function startServer() {
     authSocket.on('leave:conversation', (id: string) => authSocket.leave(`conversation:${id}`))
 
     authSocket.on('disconnect', (reason) => {
+      socketActiveConnections.dec()
       ioLog.info({ socketId: socket.id, reason }, 'socket disconnected')
     })
 
@@ -115,11 +121,33 @@ async function startServer() {
     }, 'socket-server ready')
   })
 
-  // 8. Graceful shutdown
+  // 8. Metrics server on internal-only port (not published in compose)
+  const metricsServer = createServer((req, res) => {
+    if (req.url === '/metrics') {
+      register.metrics()
+        .then((m) => {
+          res.writeHead(200, { 'Content-Type': register.contentType })
+          res.end(m)
+        })
+        .catch((err) => {
+          res.writeHead(500)
+          res.end(String(err))
+        })
+    } else {
+      res.writeHead(404)
+      res.end()
+    }
+  })
+  metricsServer.listen(METRICS_PORT, '0.0.0.0', () => {
+    log.info({ port: METRICS_PORT }, 'metrics server listening (internal only)')
+  })
+
+  // 9. Graceful shutdown
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutdown signal received')
 
     io.close(() => ioLog.info('all socket connections closed'))
+    metricsServer.close()
 
     try {
       await pgManager.disconnect()

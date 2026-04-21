@@ -3,6 +3,11 @@ const nextConfig = {
   // Standalone output for deployment
   output: 'standalone',
 
+  // Keep prom-client external so instrumentation.ts and route handlers share
+  // the same module-level registry via Node's require cache. Without this,
+  // turbopack bundles prom-client twice and /metrics returns an empty register.
+  serverExternalPackages: ['prom-client'],
+
   // Disable image optimization (no frontend)
   images: {
     unoptimized: true,

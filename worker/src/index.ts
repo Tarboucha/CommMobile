@@ -1,6 +1,10 @@
+import http from 'http'
 import { pool } from './lib/db.js'
 import { startScheduler } from './schedules/cron.js'
 import { log } from './lib/logger.js'
+import { register } from './lib/metrics.js'
+
+const METRICS_PORT = parseInt(process.env.METRICS_PORT || '9104')
 
 async function main() {
   log.info('worker booting')
@@ -21,11 +25,33 @@ async function main() {
     await orphanSweep().catch((err) => log.error({ err }, 'orphan-sweep failed'))
   }
 
+  // ─── Metrics server on internal-only port (not published in compose) ──
+  const metricsServer = http.createServer((req, res) => {
+    if (req.url === '/metrics') {
+      register.metrics()
+        .then((m) => {
+          res.writeHead(200, { 'Content-Type': register.contentType })
+          res.end(m)
+        })
+        .catch((err) => {
+          res.writeHead(500)
+          res.end(String(err))
+        })
+    } else {
+      res.writeHead(404)
+      res.end()
+    }
+  })
+  metricsServer.listen(METRICS_PORT, '0.0.0.0', () => {
+    log.info({ port: METRICS_PORT }, 'metrics server listening (internal only)')
+  })
+
   log.info('worker ready')
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'shutting down')
+    metricsServer.close()
     await pool.end()
     process.exit(0)
   }

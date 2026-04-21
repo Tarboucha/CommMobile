@@ -4,7 +4,24 @@ import { prisma } from "@/lib/prisma";
 import { ApiErrors } from "@/lib/utils/api-response";
 import { runWithRequestContext, getRequestId, getRequestDuration } from "@/lib/request-context";
 import { log } from "@/lib/log";
+import { httpRequestsTotal, httpRequestDuration, normalizeRoute } from "@/lib/metrics";
 import { User } from "@/types/auth";
+
+/**
+ * Record one RED-style sample for the given request/response pair. Route is
+ * normalized to its template form to keep Prometheus label cardinality bounded.
+ */
+function recordMetrics(
+  request: NextRequest,
+  status: number,
+  durationMs: number,
+) {
+  const method = request.method
+  const route = normalizeRoute(request.nextUrl.pathname)
+  const statusLabel = String(status)
+  httpRequestsTotal.inc({ method, route, status: statusLabel })
+  httpRequestDuration.observe({ method, route, status: statusLabel }, durationMs / 1000)
+}
 
 /**
  * Handler function type that receives the authenticated user, request, and optional params
@@ -102,28 +119,35 @@ export function withAuth<TParams = Record<string, string>>(
 
         const response = await handler(user, request, params);
 
+        const durationMs = getRequestDuration();
         log.info({
           reqId: rid,
           userId: user.id,
           req: { method: request.method, url: request.nextUrl.pathname },
           res: { statusCode: response.status },
-          responseTime: getRequestDuration(),
+          responseTime: durationMs,
         }, "request completed");
+        recordMetrics(request, response.status, durationMs);
 
         return attachRequestId(response);
       } catch (error: any) {
+        const durationMs = getRequestDuration();
         if (error.message === "UNAUTHORIZED") {
-          return attachRequestId(ApiErrors.unauthorized());
+          const response = ApiErrors.unauthorized();
+          recordMetrics(request, response.status, durationMs);
+          return attachRequestId(response);
         }
 
         log.error({
           reqId: rid,
           err: error,
           req: { method: request.method, url: request.nextUrl.pathname },
-          responseTime: getRequestDuration(),
+          responseTime: durationMs,
         }, "request failed");
 
-        return attachRequestId(ApiErrors.serverError());
+        const response = ApiErrors.serverError();
+        recordMetrics(request, response.status, durationMs);
+        return attachRequestId(response);
       }
     });
   };
@@ -152,30 +176,89 @@ export function withSecureAuth<TParams = Record<string, string>>(
 
         const response = await handler(user, request, params);
 
+        const durationMs = getRequestDuration();
         log.info({
           reqId: rid,
           userId: user.id,
           req: { method: request.method, url: request.nextUrl.pathname },
           res: { statusCode: response.status },
-          responseTime: getRequestDuration(),
+          responseTime: durationMs,
           secure: true,
         }, "request completed");
+        recordMetrics(request, response.status, durationMs);
 
         return attachRequestId(response);
       } catch (error: any) {
+        const durationMs = getRequestDuration();
         if (error.message === "UNAUTHORIZED") {
-          return attachRequestId(ApiErrors.unauthorized());
+          const response = ApiErrors.unauthorized();
+          recordMetrics(request, response.status, durationMs);
+          return attachRequestId(response);
         }
 
         log.error({
           reqId: rid,
           err: error,
           req: { method: request.method, url: request.nextUrl.pathname },
-          responseTime: getRequestDuration(),
+          responseTime: durationMs,
           secure: true,
         }, "request failed");
 
-        return attachRequestId(ApiErrors.serverError());
+        const response = ApiErrors.serverError();
+        recordMetrics(request, response.status, durationMs);
+        return attachRequestId(response);
+      }
+    });
+  };
+}
+
+/**
+ * Wrapper for public (unauthenticated) API routes so their requests are still
+ * recorded by RED metrics. Mirrors withAuth's lifecycle minus JWT verification.
+ */
+type PublicHandler<TParams = Record<string, string>> = (
+  request: NextRequest,
+  params?: TParams,
+) => Promise<NextResponse> | NextResponse;
+
+export function withMetrics<TParams = Record<string, string>>(
+  handler: PublicHandler<TParams>,
+) {
+  return async (
+    request: NextRequest,
+    context?: { params: Promise<TParams> },
+  ): Promise<NextResponse> => {
+    return runWithRequestContext(async () => {
+      const rid = getRequestId();
+
+      try {
+        let params: TParams | undefined;
+        if (context?.params) params = await context.params;
+
+        const response = await handler(request, params);
+
+        const durationMs = getRequestDuration();
+        log.info({
+          reqId: rid,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          res: { statusCode: response.status },
+          responseTime: durationMs,
+        }, "request completed");
+        recordMetrics(request, response.status, durationMs);
+
+        return attachRequestId(response);
+      } catch (error: any) {
+        const durationMs = getRequestDuration();
+        log.error({
+          reqId: rid,
+          err: error,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          responseTime: durationMs,
+        }, "request failed");
+
+        const response = ApiErrors.serverError();
+        recordMetrics(request, response.status, durationMs);
+        return attachRequestId(response);
       }
     });
   };

@@ -1,0 +1,74 @@
+# Prometheus — metrics scraping + time-series storage.
+# Scrapes: self, node-exporter, cAdvisor, postgres-exporter, and each app's
+# internal /metrics endpoint (prom-client on a dedicated unpublished port).
+
+global:
+  scrape_interval: 30s      # how often to pull metrics from targets
+  evaluation_interval: 30s  # how often to evaluate alerting rules (Phase 4)
+  scrape_timeout: 10s
+  external_labels:
+    monitor: 'kodo-mobile-stack'
+    environment: 'local'    # override to 'production' on the VPS
+
+# Alertmanager config — enabled in Phase 4. Safe to leave this block even
+# without Alertmanager running; Prometheus just can't forward alerts.
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+# rule_files:
+#   - 'alerts/*.yml'
+
+# ── Scrape targets ─────────────────────────────────────────────────────────
+scrape_configs:
+  # Prometheus self-monitoring — useful for "is Prometheus itself healthy?"
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 60s   # self-monitoring doesn't need high frequency
+
+  # Node Exporter — host-level: CPU, memory, disk, network, filesystem
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # cAdvisor — per-container CPU, memory, network, disk usage
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    metric_relabel_configs:
+      # Drop noisy/uninteresting container metrics to keep storage tight
+      - source_labels: [__name__]
+        regex: 'container_(blkio_device_usage_total|tasks_state|memory_failures_total)'
+        action: drop
+
+  # postgres-exporter — connection counts, query stats, locks, replication
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # App metrics — each service exposes /metrics on an internal-only port
+  # (not published in docker-compose.yml). Reached via the Docker network.
+  - job_name: 'auth-service'
+    static_configs:
+      - targets: ['auth-service:9101']
+    scrape_interval: 30s
+
+  - job_name: 'kodo-api'
+    static_configs:
+      - targets: ['kodo-api:9102']
+    scrape_interval: 30s
+
+  - job_name: 'socket-server'
+    static_configs:
+      - targets: ['socket-server:9103']
+    scrape_interval: 30s
+
+  - job_name: 'worker'
+    static_configs:
+      - targets: ['worker:9104']
+    scrape_interval: 30s

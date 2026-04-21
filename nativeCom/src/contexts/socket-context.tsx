@@ -96,6 +96,8 @@ export function SocketProvider({ children }: SocketProviderProps) {
 
         console.log('[Socket] Connecting to', socketUrl, '— user:', user.id)
         currentSocket = io(socketUrl, {
+          // nginx proxies /ws/ → socket-server root; tell Socket.io to mount here.
+          path: '/ws/socket.io/',
           auth: {
             token: accessToken,
             profileId: user.id,
