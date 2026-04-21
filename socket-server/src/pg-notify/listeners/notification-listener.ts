@@ -1,6 +1,9 @@
 import type { NotificationHandler } from '../pg-notify-manager'
 import type { NotificationTriggerPayload } from '../../types/notification'
 import { sendPushToUser, NOTIFICATION_MESSAGES } from '../../services/expo-push-service'
+import { log } from '../../log'
+
+const listenerLog = log.child({ component: 'notification-listener' })
 
 /**
  * Handles notification_created events from PostgreSQL NOTIFY
@@ -17,8 +20,11 @@ export const notificationListener: NotificationHandler<NotificationTriggerPayloa
     const profileId = payload.profile_id
     const badgeCount = payload.badge_count || 0
 
-    console.log(`[NotificationListener] Processing notification for profile ${profileId}`)
-    console.log(`[NotificationListener] Badge count: ${badgeCount}, Type: ${payload.notification_type}`)
+    listenerLog.debug({
+      profileId,
+      badgeCount,
+      notificationType: payload.notification_type,
+    }, 'processing notification')
 
     const userRoom = io.sockets.adapter.rooms.get(`user:${profileId}`)
     const isConnected = userRoom && userRoom.size > 0
@@ -33,9 +39,9 @@ export const notificationListener: NotificationHandler<NotificationTriggerPayloa
         data: payload.data_json,
         created_at: payload.created_at,
       })
-      console.log(`[NotificationListener] Sent Socket.io events to user:${profileId}`)
+      listenerLog.info({ profileId, transport: 'socket' }, 'notification delivered')
     } else {
-      console.log(`[NotificationListener] User ${profileId} is offline — sending push`)
+      listenerLog.info({ profileId, transport: 'push' }, 'user offline, sending push')
       const message = NOTIFICATION_MESSAGES[payload.notification_type] || NOTIFICATION_MESSAGES.system
       await sendPushToUser(
         profileId,
@@ -51,9 +57,12 @@ export const notificationListener: NotificationHandler<NotificationTriggerPayloa
         },
         badgeCount
       )
-      console.log(`[NotificationListener] Push sent to ${profileId} (type: ${payload.notification_type})`)
+      listenerLog.info({
+        profileId,
+        notificationType: payload.notification_type,
+      }, 'push notification sent')
     }
-  } catch (error) {
-    console.error('[NotificationListener] Error processing notification:', error)
+  } catch (err) {
+    listenerLog.error({ err, payload }, 'error processing notification')
   }
 }

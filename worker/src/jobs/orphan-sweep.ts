@@ -44,10 +44,7 @@ export async function orphanSweep(): Promise<{ scanned: number; deleted: number 
       }
     } catch (err) {
       // Table might not exist yet — ignore and move on.
-      log.warn('orphan-sweep: query failed', {
-        sql,
-        error: err instanceof Error ? err.message : String(err),
-      })
+      log.warn({ err, sql }, 'orphan-sweep: query failed')
     }
   }
 
@@ -86,25 +83,25 @@ export async function orphanSweep(): Promise<{ scanned: number; deleted: number 
       )
       deleted += chunk.length - (result.Errors?.length ?? 0)
       if (result.Errors?.length) {
-        log.warn('orphan-sweep: some R2 deletes failed', {
+        log.warn({
           errors: result.Errors.slice(0, 5),
-        })
+        }, 'orphan-sweep: some R2 deletes failed')
       }
     } catch (err) {
-      log.error('orphan-sweep: chunk delete failed', {
-        error: err instanceof Error ? err.message : String(err),
-        chunk_size: chunk.length,
-      })
+      log.error({
+        err,
+        chunkSize: chunk.length,
+      }, 'orphan-sweep: chunk delete failed')
     }
   }
 
-  log.info('orphan-sweep: done', {
-    referenced_in_db: referencedKeys.size,
-    r2_scanned: scanned,
-    orphans_found: orphans.length,
+  log.info({
+    referencedInDb: referencedKeys.size,
+    r2Scanned: scanned,
+    orphansFound: orphans.length,
     deleted,
-    duration_ms: Date.now() - started,
-  })
+    durationMs: Date.now() - started,
+  }, 'orphan-sweep: done')
 
   return { scanned, deleted }
 }

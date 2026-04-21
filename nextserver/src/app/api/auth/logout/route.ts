@@ -1,5 +1,6 @@
 import { ApiErrors, successResponse, handleUnsupportedMethod } from "@/lib/utils/api-response"
 import { NextRequest } from "next/server"
+import { log } from "@/lib/log"
 
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3004'
 
@@ -21,8 +22,8 @@ export async function POST(request: NextRequest) {
     }
 
     return successResponse({ message: "Successfully logged out" }, "Logged out successfully")
-  } catch (error) {
-    console.error("Unexpected error during logout:", error)
+  } catch (err) {
+    log.error({ err }, "unexpected error during logout")
     return ApiErrors.serverError("An unexpected error occurred during logout")
   }
 }

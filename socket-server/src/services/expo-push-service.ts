@@ -8,6 +8,9 @@
 
 import Expo, { ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
 import { Client } from 'pg';
+import { log } from '../log';
+
+const pushLog = log.child({ component: 'expo-push' });
 
 // Create Expo SDK client
 const expo = new Expo();
@@ -56,7 +59,7 @@ export async function sendPushToUser(
     );
 
     if (!tokens || tokens.length === 0) {
-      console.log(`[ExpoPush] No push tokens found for user ${profileId}`);
+      pushLog.debug({ profileId }, 'no push tokens found for user');
       return;
     }
 
@@ -77,7 +80,7 @@ export async function sendPushToUser(
           badge,
         });
       } else {
-        console.warn(`[ExpoPush] Invalid token found: ${t.token}, marking for removal`);
+        pushLog.warn({ tokenId: t.id }, 'invalid expo token, marking for removal');
         invalidTokenIds.push(t.id);
       }
     }
@@ -91,11 +94,11 @@ export async function sendPushToUser(
     }
 
     if (messages.length === 0) {
-      console.log(`[ExpoPush] No valid tokens for user ${profileId}`);
+      pushLog.debug({ profileId }, 'no valid tokens after filtering');
       return;
     }
 
-    console.log(`[ExpoPush] Sending to ${messages.length} device(s) for user ${profileId}`);
+    pushLog.info({ profileId, deviceCount: messages.length }, 'sending push notifications');
 
     // Chunk messages (Expo recommends max 100 per request)
     const chunks = expo.chunkPushNotifications(messages);
@@ -108,12 +111,15 @@ export async function sendPushToUser(
         const tokensToRemove: string[] = [];
         ticketChunk.forEach((ticket: ExpoPushTicket, index: number) => {
           if (ticket.status === 'error') {
-            console.error(`[ExpoPush] Error for token:`, ticket.message);
+            pushLog.error({
+              message: ticket.message,
+              errorCode: ticket.details?.error,
+            }, 'expo push ticket returned error');
 
             // Handle invalid tokens - mark for removal
             if (ticket.details?.error === 'DeviceNotRegistered') {
               const invalidToken = validTokens[index];
-              console.log(`[ExpoPush] Marking for removal: ${invalidToken.token}`);
+              pushLog.warn({ tokenId: invalidToken.id }, 'device not registered, removing token');
               tokensToRemove.push(invalidToken.id);
             }
           }
@@ -126,14 +132,14 @@ export async function sendPushToUser(
             [tokensToRemove]
           );
         }
-      } catch (chunkError) {
-        console.error('[ExpoPush] Error sending chunk:', chunkError);
+      } catch (err) {
+        pushLog.error({ err }, 'error sending push chunk');
       }
     }
 
-    console.log(`[ExpoPush] Successfully processed ${messages.length} notification(s)`);
-  } catch (error) {
-    console.error('[ExpoPush] Failed to send push to user:', error);
+    pushLog.info({ profileId, count: messages.length }, 'push notifications processed');
+  } catch (err) {
+    pushLog.error({ err, profileId }, 'failed to send push to user');
   }
 }
 

@@ -8,16 +8,15 @@ import { log } from '../lib/logger.js'
  * takes down the worker.
  */
 function safe(name: string, fn: () => Promise<unknown>) {
+  const jobLog = log.child({ job: name })
   return async () => {
-    log.info(`job ${name} starting`)
+    const startedAt = Date.now()
+    jobLog.info('job starting')
     try {
       const result = await fn()
-      log.info(`job ${name} finished`, { result })
+      jobLog.info({ result, durationMs: Date.now() - startedAt }, 'job finished')
     } catch (err) {
-      log.error(`job ${name} crashed`, {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-      })
+      jobLog.error({ err, durationMs: Date.now() - startedAt }, 'job crashed')
     }
   }
 }
@@ -29,7 +28,7 @@ export function startScheduler() {
   // Sunday 03:00: walk R2 and delete orphan keys.
   new Cron('0 3 * * 0', safe('orphan-sweep', orphanSweep))
 
-  log.info('scheduler started', {
+  log.info({
     jobs: ['expire-attachments (hourly)', 'orphan-sweep (Sun 03:00)'],
-  })
+  }, 'scheduler started')
 }

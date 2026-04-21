@@ -71,7 +71,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       try {
         await sendVerificationEmail(email, token)
       } catch (err) {
-        console.error('[Auth] Failed to send verification email:', err)
+        req.log.error({ err, userId, email }, 'failed to send verification email')
       }
 
       return reply.status(201).send({ message: 'Account created. Check your email to verify.' })
@@ -281,7 +281,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         try {
           await sendPasswordResetEmail(email, token)
         } catch (err) {
-          console.error('[Auth] Failed to send password reset email:', err)
+          req.log.error({ err, email }, 'failed to send password reset email')
         }
       }
 

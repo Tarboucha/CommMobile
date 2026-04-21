@@ -1,19 +1,18 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { log } from '@/lib/log'
 
 export default function proxy(request: NextRequest) {
-  // Log ALL incoming requests for debugging
-  console.log('========================================')
-  console.log('[PROXY] Incoming request:', {
-    method: request.method,
-    url: request.url,
-    path: request.nextUrl.pathname,
+  // Log every incoming request at debug level — set LOG_LEVEL=debug to see.
+  log.debug({
+    req: {
+      method: request.method,
+      url: request.nextUrl.pathname,
+    },
     origin: request.headers.get('origin'),
     userAgent: request.headers.get('user-agent'),
-    authorization: request.headers.get('authorization') ? 'Present' : 'Missing',
-    authPreview: request.headers.get('authorization')?.substring(0, 30),
-  })
-  console.log('========================================')
+    hasAuthHeader: !!request.headers.get('authorization'),
+  }, 'incoming proxy request')
 
   // Handle preflight OPTIONS requests
   if (request.method === 'OPTIONS') {

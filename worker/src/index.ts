@@ -17,15 +17,15 @@ async function main() {
     const { expireAttachments } = await import('./jobs/expire-attachments.js')
     const { orphanSweep } = await import('./jobs/orphan-sweep.js')
     log.info('WORKER_RUN_ON_BOOT=true — running all jobs now')
-    await expireAttachments().catch((e) => log.error('expire-attachments failed', { error: e?.message }))
-    await orphanSweep().catch((e) => log.error('orphan-sweep failed', { error: e?.message }))
+    await expireAttachments().catch((err) => log.error({ err }, 'expire-attachments failed'))
+    await orphanSweep().catch((err) => log.error({ err }, 'orphan-sweep failed'))
   }
 
   log.info('worker ready')
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {
-    log.info('shutting down', { signal })
+    log.info({ signal }, 'shutting down')
     await pool.end()
     process.exit(0)
   }
@@ -34,9 +34,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  log.error('fatal', {
-    error: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
-  })
+  log.fatal({ err }, 'worker failed to start')
   process.exit(1)
 })

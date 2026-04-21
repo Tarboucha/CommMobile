@@ -3,6 +3,7 @@ import { verifyToken } from "@/lib/auth/verify";
 import { prisma } from "@/lib/prisma";
 import { ApiErrors } from "@/lib/utils/api-response";
 import { runWithRequestContext, getRequestId, getRequestDuration } from "@/lib/request-context";
+import { log } from "@/lib/log";
 import { User } from "@/types/auth";
 
 /**
@@ -101,7 +102,13 @@ export function withAuth<TParams = Record<string, string>>(
 
         const response = await handler(user, request, params);
 
-        console.log(`[${rid}] ${request.method} ${request.nextUrl.pathname} → ${response.status} (${getRequestDuration()}ms) user=${user.id}`);
+        log.info({
+          reqId: rid,
+          userId: user.id,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          res: { statusCode: response.status },
+          responseTime: getRequestDuration(),
+        }, "request completed");
 
         return attachRequestId(response);
       } catch (error: any) {
@@ -109,9 +116,12 @@ export function withAuth<TParams = Record<string, string>>(
           return attachRequestId(ApiErrors.unauthorized());
         }
 
-        console.error(`[${rid}] ${request.method} ${request.nextUrl.pathname} → 500 (${getRequestDuration()}ms)`, {
-          error: error.message,
-        });
+        log.error({
+          reqId: rid,
+          err: error,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          responseTime: getRequestDuration(),
+        }, "request failed");
 
         return attachRequestId(ApiErrors.serverError());
       }
@@ -142,7 +152,14 @@ export function withSecureAuth<TParams = Record<string, string>>(
 
         const response = await handler(user, request, params);
 
-        console.log(`[${rid}] ${request.method} ${request.nextUrl.pathname} → ${response.status} (${getRequestDuration()}ms) user=${user.id}`);
+        log.info({
+          reqId: rid,
+          userId: user.id,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          res: { statusCode: response.status },
+          responseTime: getRequestDuration(),
+          secure: true,
+        }, "request completed");
 
         return attachRequestId(response);
       } catch (error: any) {
@@ -150,9 +167,13 @@ export function withSecureAuth<TParams = Record<string, string>>(
           return attachRequestId(ApiErrors.unauthorized());
         }
 
-        console.error(`[${rid}] ${request.method} ${request.nextUrl.pathname} → 500 (${getRequestDuration()}ms)`, {
-          error: error.message,
-        });
+        log.error({
+          reqId: rid,
+          err: error,
+          req: { method: request.method, url: request.nextUrl.pathname },
+          responseTime: getRequestDuration(),
+          secure: true,
+        }, "request failed");
 
         return attachRequestId(ApiErrors.serverError());
       }

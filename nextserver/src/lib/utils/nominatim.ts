@@ -1,14 +1,18 @@
 /**
  * Nominatim Geocoding Service
- * 
+ *
  * Provides geocoding functionality using the Nominatim API with:
  * - Global rate limiting (1 request per second)
  * - Structured address search
  * - Reverse geocoding
  * - Response parsing and normalization
- * 
+ *
  * @see NOMINATIM.md for API usage guidelines
  */
+
+import { log } from "@/lib/log";
+
+const nomLog = log.child({ component: "nominatim" });
 
 // ============================================================================
 // Custom Errors
@@ -131,7 +135,7 @@ class NominatimRateLimiter {
     return new Promise((resolve, reject) => {
       // Log queue status
       if (queuePosition > 1) {
-        console.log(`[Nominatim Rate Limiter] Request #${requestId} queued. Position in queue: ${queuePosition}, Queue size: ${this.requestQueue.length + 1}`);
+        nomLog.debug({ requestId, queuePosition, queueSize: this.requestQueue.length + 1 }, 'rate-limiter: queued');
       }
 
       // Set up timeout to prevent infinite waiting
@@ -140,7 +144,7 @@ class NominatimRateLimiter {
         const index = this.requestQueue.findIndex(item => item.queuedAt === queuedAt);
         if (index !== -1) {
           this.requestQueue.splice(index, 1);
-          console.error(`[Nominatim Rate Limiter] Request #${requestId} timed out after ${MAX_QUEUE_WAIT_MS}ms`);
+          nomLog.error({ requestId, timeoutMs: MAX_QUEUE_WAIT_MS }, 'rate-limiter: request timed out in queue');
           reject(new RateLimiterTimeoutError(`Request timed out after ${MAX_QUEUE_WAIT_MS}ms in rate limiter queue`));
         }
       }, MAX_QUEUE_WAIT_MS);
@@ -181,9 +185,7 @@ class NominatimRateLimiter {
         const queueSize = this.requestQueue.length;
         
         if (queueSize > 0) {
-          const nextRequest = this.requestQueue[0];
-          const waitTimeSeconds = (waitTime / 1000).toFixed(1);
-          console.log(`[Nominatim Rate Limiter] Rate limiting active. Waiting ${waitTimeSeconds}s before next request. Queue size: ${queueSize}`);
+          nomLog.debug({ waitMs: waitTime, queueSize }, 'rate-limiter: waiting before next request');
         }
         
         await new Promise((resolve) => setTimeout(resolve, waitTime));
@@ -197,19 +199,22 @@ class NominatimRateLimiter {
         
         if (waitTime > 100) {
           // Only log if there was a noticeable wait
-          console.log(`[Nominatim Rate Limiter] Processing request after ${waitTimeSeconds}s wait. Remaining in queue: ${this.requestQueue.length}`);
+          nomLog.debug({
+            waitMs: waitTime,
+            remaining: this.requestQueue.length,
+          }, 'rate-limiter: processing after wait');
         }
         
         this.lastRequestTime = Date.now();
         next.resolve();
       }
-    } catch (error) {
+    } catch (err) {
       // Handle any errors in queue processing
-      console.error("[Nominatim Rate Limiter] Error processing queue:", error);
+      nomLog.error({ err }, 'rate-limiter: error processing queue');
       // Reject the next request if there's an error
       const next = this.requestQueue.shift();
       if (next) {
-        next.reject(error instanceof Error ? error : new Error("Rate limiter error"));
+        next.reject(err instanceof Error ? err : new Error("Rate limiter error"));
       }
     } finally {
       this.isProcessing = false;
@@ -259,10 +264,10 @@ async function makeNominatimRequest(url: string): Promise<Response> {
     });
 
     return response;
-  } catch (error) {
+  } catch (err) {
     // Log rate limiter errors
-    console.error("[Nominatim] Rate limiter error:", error);
-    throw error;
+    nomLog.error({ err }, 'rate limiter error');
+    throw err;
   }
 }
 
@@ -339,7 +344,7 @@ function parseGeocodeJsonResponse(
 ): GeocodedAddress | null {
   // Validate response structure
   if (!response.features || response.features.length === 0) {
-    console.error("[Nominatim] No features in response");
+    nomLog.warn('no features in response');
     return null;
   }
 
@@ -347,15 +352,15 @@ function parseGeocodeJsonResponse(
   const geocoding = feature.properties?.geocoding;
 
   if (!geocoding) {
-    console.error("[Nominatim] No geocoding property in feature:", {
+    nomLog.warn({
       hasProperties: !!feature.properties,
       propertiesKeys: feature.properties ? Object.keys(feature.properties) : [],
-    });
+    }, 'no geocoding property in feature');
     return null;
   }
 
   if (!feature.geometry?.coordinates) {
-    console.error("[Nominatim] No coordinates in feature geometry");
+    nomLog.warn('no coordinates in feature geometry');
     return null;
   }
 
@@ -371,7 +376,7 @@ function parseGeocodeJsonResponse(
     longitude < -180 ||
     longitude > 180
   ) {
-    console.error("[Nominatim] Invalid coordinates:", { latitude, longitude });
+    nomLog.warn({ latitude, longitude }, 'invalid coordinates');
     return null;
   }
 
@@ -386,7 +391,7 @@ function parseGeocodeJsonResponse(
 
   // Validate required fields
   if (!streetName || !city || !country) {
-    console.error("[Nominatim] Missing required address fields:", {
+    nomLog.warn({
       streetName,
       city,
       country,
@@ -397,7 +402,7 @@ function parseGeocodeJsonResponse(
         locality: geocoding.locality,
         country: geocoding.country,
       },
-    });
+    }, 'missing required address fields');
     return null;
   }
 
@@ -444,7 +449,7 @@ export async function searchAddress(
 
     // Handle HTTP errors
     if (response.status === 429) {
-      console.error("[Nominatim] Rate limit exceeded (429) - This should not happen with our rate limiter");
+      nomLog.error('rate limit exceeded (429) — should not happen with our rate limiter');
       // Wait a bit longer and retry once (with rate limiting)
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const retryResponse = await makeNominatimRequest(url);
@@ -456,25 +461,25 @@ export async function searchAddress(
     }
 
     if (response.status === 503) {
-      console.error("[Nominatim] Service unavailable (503)");
+      nomLog.error('service unavailable (503)');
       throw new Error("Geocoding service temporarily unavailable");
     }
 
     if (!response.ok) {
-      console.error("[Nominatim] API error:", response.status, response.statusText);
+      nomLog.error({ status: response.status, statusText: response.statusText }, 'API error');
       throw new Error(`Nominatim API error: ${response.status}`);
     }
 
     // Parse response
     const data: NominatimGeocodeJsonResponse = await response.json();
     return parseGeocodeJsonResponse(data);
-  } catch (error) {
+  } catch (err) {
     // Log error but don't expose internal details
-    console.error("[Nominatim] Search error:", error);
-    
+    nomLog.error({ err }, 'search error');
+
     // Re-throw as user-friendly error
-    if (error instanceof Error) {
-      throw error;
+    if (err instanceof Error) {
+      throw err;
     }
     throw new Error("Failed to geocode address");
   }
@@ -499,7 +504,7 @@ export async function reverseGeocode(
 
     // Handle HTTP errors
     if (response.status === 429) {
-      console.error("[Nominatim] Rate limit exceeded (429) - This should not happen with our rate limiter");
+      nomLog.error('rate limit exceeded (429) — should not happen with our rate limiter');
       // Wait a bit longer and retry once (with rate limiting)
       await new Promise((resolve) => setTimeout(resolve, 2000));
       const retryResponse = await makeNominatimRequest(url);
@@ -511,25 +516,25 @@ export async function reverseGeocode(
     }
 
     if (response.status === 503) {
-      console.error("[Nominatim] Service unavailable (503)");
+      nomLog.error('service unavailable (503)');
       throw new Error("Geocoding service temporarily unavailable");
     }
 
     if (!response.ok) {
-      console.error("[Nominatim] API error:", response.status, response.statusText);
+      nomLog.error({ status: response.status, statusText: response.statusText }, 'API error');
       throw new Error(`Nominatim API error: ${response.status}`);
     }
 
     // Parse response
     const data: NominatimGeocodeJsonResponse = await response.json();
     return parseGeocodeJsonResponse(data);
-  } catch (error) {
+  } catch (err) {
     // Log error but don't expose internal details
-    console.error("[Nominatim] Reverse geocode error:", error);
-    
+    nomLog.error({ err }, 'reverse geocode error');
+
     // Re-throw as user-friendly error
-    if (error instanceof Error) {
-      throw error;
+    if (err instanceof Error) {
+      throw err;
     }
     throw new Error("Failed to reverse geocode coordinates");
   }

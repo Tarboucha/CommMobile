@@ -9,6 +9,7 @@ import {
   ValidationError,
 } from "@/lib/errors/domain-errors";
 import { getRequestId } from "@/lib/request-context";
+import { log } from "@/lib/log";
 
 /**
  * Maps RPC (PostgreSQL function) error messages to domain errors.
@@ -84,6 +85,6 @@ export function mapRpcError(error: unknown): never {
   }
 
   // Unknown RPC error — log with request ID and re-throw
-  console.error(`[${getRequestId()}] unknown RPC error:`, msg);
+  log.error({ reqId: getRequestId(), msg, err: error }, "unknown RPC error");
   throw error;
 }

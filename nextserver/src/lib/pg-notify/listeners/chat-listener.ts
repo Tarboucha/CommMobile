@@ -2,6 +2,9 @@
 // Handler for message_created events from PostgreSQL
 
 import type { NotificationHandler, PgNotifyPayload } from '../pg-notify-manager'
+import { log } from '@/lib/log'
+
+const chatLog = log.child({ component: 'chat-listener' })
 
 interface MessageCreatedPayload extends PgNotifyPayload {
   message_id: string
@@ -33,7 +36,7 @@ export const chatListener: NotificationHandler<MessageCreatedPayload> = async (p
     const message = payload
 
     if (!message.conversation_id) {
-      console.warn('[ChatListener] Received message without conversation_id')
+      chatLog.warn({ payload }, 'message missing conversation_id')
       return
     }
 
@@ -64,10 +67,12 @@ export const chatListener: NotificationHandler<MessageCreatedPayload> = async (p
       created_at: message.created_at,
     })
 
-    console.log(
-      `[ChatListener] Broadcasted message ${message.message_id} to room ${room}`
-    )
-  } catch (error) {
-    console.error('[ChatListener] Error processing message:', error)
+    chatLog.debug({
+      messageId: message.message_id,
+      room,
+      conversationType: message.conversation_type,
+    }, 'broadcasted message')
+  } catch (err) {
+    chatLog.error({ err, payload }, 'error processing message')
   }
 }

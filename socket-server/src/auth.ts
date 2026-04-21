@@ -1,6 +1,9 @@
 import { Socket } from 'socket.io'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import type { AuthenticatedSocket } from './types/socket'
+import { log } from './log'
+
+const authLog = log.child({ component: 'socket-auth' })
 
 const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:3004'
 
@@ -25,12 +28,12 @@ export async function authenticateSocket(
     const clientProfileId = socket.handshake.auth?.profileId
 
     if (!token) {
-      console.log(`[Auth] ❌ No token from ${socket.id}`)
+      authLog.warn({ socketId: socket.id }, 'auth rejected: no token')
       return next(new Error('Authentication token required'))
     }
 
     if (!clientProfileId) {
-      console.log(`[Auth] ❌ No profileId from ${socket.id}`)
+      authLog.warn({ socketId: socket.id }, 'auth rejected: no profileId')
       return next(new Error('Profile ID required'))
     }
 
@@ -40,7 +43,7 @@ export async function authenticateSocket(
       const result = await jwtVerify(token, JWKS, { algorithms: ['ES256'] })
       payload = result.payload
     } catch {
-      console.log(`[Auth] ❌ Invalid JWT from ${socket.id}`)
+      authLog.warn({ socketId: socket.id }, 'auth rejected: invalid JWT')
       return next(new Error('Invalid authentication token'))
     }
 
@@ -53,19 +56,20 @@ export async function authenticateSocket(
 
     // Security: client-sent profileId must match the token's sub
     if (clientProfileId !== profileId) {
-      console.error(
-        `[Auth] 🚨 Profile ID mismatch! client=${clientProfileId}, token=${profileId}`
+      authLog.error(
+        { socketId: socket.id, clientProfileId, tokenProfileId: profileId },
+        'profile ID mismatch — possible token misuse'
       )
       return next(new Error('Invalid profile ID'))
     }
 
     // Attach verified profile ID from token
     ;(socket as AuthenticatedSocket).userId = profileId
-    console.log(`[Auth] ✅ Socket ${socket.id} → Profile ${profileId}`)
+    authLog.info({ socketId: socket.id, profileId }, 'socket authenticated')
     next()
 
-  } catch (error) {
-    console.error('[Auth] ❌ Unexpected error:', error)
+  } catch (err) {
+    authLog.error({ err, socketId: socket.id }, 'unexpected auth error')
     next(new Error('Authentication failed'))
   }
 }

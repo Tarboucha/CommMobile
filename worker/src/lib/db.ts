@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { log } from './logger.js'
 
 const { Pool } = pg
 
@@ -14,5 +15,5 @@ export const pool = new Pool({
 })
 
 pool.on('error', (err) => {
-  console.error('[DB] Unexpected pool error:', err)
+  log.error({ err }, 'unexpected pg pool error')
 })

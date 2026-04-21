@@ -14,6 +14,9 @@
 import { DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "@/lib/prisma";
 import { s3, BUCKET } from "@/lib/storage/s3";
+import { log } from "@/lib/log";
+
+const storageLog = log.child({ component: "storage-service" });
 import {
   avatarKey,
   offeringImageKey,
@@ -69,7 +72,7 @@ async function deleteR2Object(key: string): Promise<void> {
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
   } catch (err) {
     // Best effort. Orphan-sweep will clean it up if this fails.
-    console.warn(`[storage] R2 delete failed for ${key}:`, err);
+    storageLog.warn({ err, key }, "R2 delete failed");
   }
 }
 

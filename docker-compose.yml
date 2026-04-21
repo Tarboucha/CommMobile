@@ -7,7 +7,10 @@ services:
       POSTGRES_USER: kodo
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      # Bind to loopback only — blocks external access while keeping
+      # CI runner + VPS-local tools + docker exec working.
+      # Docker inter-container traffic uses the internal network, unaffected.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data   # ⚠️ PRODUCTION DATA — never delete
     restart: unless-stopped
@@ -27,6 +30,7 @@ services:
     env_file:
       - .env
     environment:
+      - NODE_ENV=production
       - PORT=3004
       - DATABASE_URL=postgresql://kodo:${POSTGRES_PASSWORD}@postgres:5432/kodo
     healthcheck:

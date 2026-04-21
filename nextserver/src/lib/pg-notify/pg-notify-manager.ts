@@ -5,6 +5,9 @@
 
 import { Client } from 'pg'
 import type { Server as SocketIOServer } from 'socket.io'
+import { log } from '@/lib/log'
+
+const mgrLog = log.child({ component: 'pg-notify-manager' })
 
 // Generic payload type for PostgreSQL NOTIFY events
 export interface PgNotifyPayload {
@@ -42,7 +45,7 @@ export class PgNotifyManager {
    */
   registerChannel<T extends PgNotifyPayload>(channel: string, handler: NotificationHandler<T>): void {
     this.handlers.set(channel, handler)
-    console.log(`[PgNotifyManager] Registered handler for channel: ${channel}`)
+    mgrLog.info({ channel }, 'registered channel handler')
   }
 
   /**
@@ -50,7 +53,7 @@ export class PgNotifyManager {
    */
   async connect(): Promise<void> {
     if (this.isConnected) {
-      console.log('[PgNotifyManager] Already connected')
+      mgrLog.debug('already connected')
       return
     }
 
@@ -62,46 +65,46 @@ export class PgNotifyManager {
 
       // Handle connection errors
       this.client.on('error', (err) => {
-        console.error('[PgNotifyManager] PostgreSQL client error:', err)
+        mgrLog.error({ err }, 'pg client error')
         this.handleDisconnect()
       })
 
       // Handle notifications
       this.client.on('notification', (msg) => {
         if (!msg.channel || !msg.payload) {
-          console.warn('[PgNotifyManager] Received notification without channel or payload')
+          mgrLog.warn({ msg }, 'notification missing channel or payload')
           return
         }
 
         const handler = this.handlers.get(msg.channel)
         if (!handler) {
-          console.warn(`[PgNotifyManager] No handler registered for channel: ${msg.channel}`)
+          mgrLog.warn({ channel: msg.channel }, 'no handler for channel')
           return
         }
 
         try {
           const payload = JSON.parse(msg.payload)
-          console.log(`[PgNotifyManager] Received on ${msg.channel}:`, payload)
+          mgrLog.debug({ channel: msg.channel, payload }, 'received notification')
           handler(payload, this.io)
-        } catch (error) {
-          console.error(`[PgNotifyManager] Error handling notification on ${msg.channel}:`, error)
+        } catch (err) {
+          mgrLog.error({ err, channel: msg.channel }, 'error handling notification')
         }
       })
 
       // Connect to database
       await this.client.connect()
       this.isConnected = true
-      console.log('[PgNotifyManager] ✅ Connected to PostgreSQL')
+      mgrLog.info('connected to PostgreSQL')
 
       // Subscribe to all registered channels
       for (const channel of this.handlers.keys()) {
         await this.client.query(`LISTEN ${channel}`)
-        console.log(`[PgNotifyManager] 👂 Listening on channel: ${channel}`)
+        mgrLog.info({ channel }, 'listening on channel')
       }
-    } catch (error) {
-      console.error('[PgNotifyManager] Failed to connect:', error)
+    } catch (err) {
+      mgrLog.error({ err }, 'failed to connect')
       this.handleDisconnect()
-      throw error
+      throw err
     }
   }
 
@@ -118,10 +121,10 @@ export class PgNotifyManager {
     }
 
     // Attempt reconnect after 5 seconds
-    console.log('[PgNotifyManager] Attempting reconnect in 5 seconds...')
+    mgrLog.warn('attempting reconnect in 5s')
     this.reconnectTimeout = setTimeout(() => {
       this.connect().catch((err) => {
-        console.error('[PgNotifyManager] Reconnect failed:', err)
+        mgrLog.error({ err }, 'reconnect failed')
       })
     }, 5000)
   }
@@ -144,10 +147,10 @@ export class PgNotifyManager {
             setTimeout(() => reject(new Error('Disconnect timeout after 5 seconds')), 5000)
           ),
         ])
-        console.log('[PgNotifyManager] ✅ Disconnected from PostgreSQL')
-      } catch (error) {
-        console.error('[PgNotifyManager] Error during graceful disconnect:', error)
-        throw error  // Propagate error so shutdown() can handle it
+        mgrLog.info('disconnected from PostgreSQL')
+      } catch (err) {
+        mgrLog.error({ err }, 'error during graceful disconnect')
+        throw err  // Propagate error so shutdown() can handle it
       }
       this.client = null
     }
@@ -160,7 +163,7 @@ export class PgNotifyManager {
    * Use this when graceful disconnect fails or times out
    */
   forceClose(): void {
-    console.log('[PgNotifyManager] Forcing connection close...')
+    mgrLog.warn('forcing connection close')
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout)
@@ -172,9 +175,9 @@ export class PgNotifyManager {
         // Force end connection immediately (don't wait for PostgreSQL)
         // @ts-ignore - end() with force is not in types but exists
         this.client.end({ force: true })
-        console.log('[PgNotifyManager] ✅ Forced connection close')
-      } catch (error) {
-        console.error('[PgNotifyManager] Error during force close:', error)
+        mgrLog.info('forced connection close')
+      } catch (err) {
+        mgrLog.error({ err }, 'error during force close')
         // Ignore errors - we're forcing shutdown anyway
       }
       this.client = null

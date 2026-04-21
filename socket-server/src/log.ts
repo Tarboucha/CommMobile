@@ -3,10 +3,11 @@ import pino from 'pino'
 const isDev = process.env.NODE_ENV !== 'production'
 
 /**
- * Shared pino logger for the worker process.
+ * Shared pino logger for socket-server.
  *
- * Use `log.info({ fields }, 'msg')` — fields first, then message.
- * For jobs, prefer `log.child({ job: 'name' })` to tag every line.
+ * Use child loggers to add persistent context:
+ *   const subLog = log.child({ component: 'pg-notify' })
+ *   subLog.info({ channel }, 'listening')
  */
 export const log = pino({
   level: process.env.LOG_LEVEL || 'info',

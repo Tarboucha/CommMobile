@@ -6,6 +6,7 @@ import { authenticateSocket } from './auth'
 import { PgNotifyManager } from './pg-notify/pg-notify-manager'
 import { registerListeners } from './pg-notify/listeners'
 import type { AuthenticatedSocket } from './types/socket'
+import { log } from './log'
 
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const HOSTNAME = process.env.HOSTNAME || '0.0.0.0'
@@ -30,11 +31,11 @@ async function startServer() {
   const pubClient = createClient({ url: process.env.REDIS_URL || 'redis://redis:6379' })
   const subClient = pubClient.duplicate()
 
-  pubClient.on('error', (err) => console.error('[Redis] pub error:', err))
-  subClient.on('error', (err) => console.error('[Redis] sub error:', err))
+  pubClient.on('error', (err) => log.error({ err, role: 'pub' }, 'redis client error'))
+  subClient.on('error', (err) => log.error({ err, role: 'sub' }, 'redis client error'))
 
   await Promise.all([pubClient.connect(), subClient.connect()])
-  console.log('[Redis] ✅ Connected')
+  log.info('redis connected')
 
   // 3. Socket.io server with Redis adapter
   const io = new SocketIOServer(httpServer, {
@@ -50,10 +51,11 @@ async function startServer() {
   io.use(authenticateSocket)
 
   // 5. Connection handlers
+  const ioLog = log.child({ component: 'socket.io' })
   io.on('connection', (socket) => {
     const authSocket = socket as AuthenticatedSocket
 
-    console.log(`[Socket.io] ✅ Connected: ${socket.id} → User ${authSocket.userId}`)
+    ioLog.info({ socketId: socket.id, userId: authSocket.userId }, 'socket connected')
 
     // Join personal room for notifications
     authSocket.join(`user:${authSocket.userId}`)
@@ -67,28 +69,28 @@ async function startServer() {
     // Room management
     authSocket.on('join:community', (id: string) => {
       authSocket.join(`community:${id}`)
-      console.log(`[Socket.io] User ${authSocket.userId} joined community:${id}`)
+      ioLog.debug({ userId: authSocket.userId, communityId: id }, 'joined community room')
     })
     authSocket.on('leave:community', (id: string) => authSocket.leave(`community:${id}`))
 
     authSocket.on('join:booking', (id: string) => {
       authSocket.join(`booking:${id}`)
-      console.log(`[Socket.io] User ${authSocket.userId} joined booking:${id}`)
+      ioLog.debug({ userId: authSocket.userId, bookingId: id }, 'joined booking room')
     })
     authSocket.on('leave:booking', (id: string) => authSocket.leave(`booking:${id}`))
 
     authSocket.on('join:conversation', (id: string) => {
       authSocket.join(`conversation:${id}`)
-      console.log(`[Socket.io] User ${authSocket.userId} joined conversation:${id}`)
+      ioLog.debug({ userId: authSocket.userId, conversationId: id }, 'joined conversation room')
     })
     authSocket.on('leave:conversation', (id: string) => authSocket.leave(`conversation:${id}`))
 
     authSocket.on('disconnect', (reason) => {
-      console.log(`[Socket.io] ❌ Disconnected: ${socket.id} → ${reason}`)
+      ioLog.info({ socketId: socket.id, reason }, 'socket disconnected')
     })
 
-    authSocket.on('error', (error) => {
-      console.error(`[Socket.io] ⚠️ Error for ${socket.id}:`, error)
+    authSocket.on('error', (err) => {
+      ioLog.error({ err, socketId: socket.id }, 'socket error')
     })
   })
 
@@ -98,45 +100,44 @@ async function startServer() {
 
   try {
     await pgManager.connect()
-    console.log('[PgNotifyManager] ✅ Listening to PostgreSQL NOTIFY events')
+    log.info('pg-notify listening for postgres NOTIFY events')
   } catch (err) {
-    console.error('[PgNotifyManager] ❌ Connection failed — real-time will not work:', err)
+    log.error({ err }, 'pg-notify connection failed — real-time will not work')
   }
 
   // 7. Start listening
   httpServer.listen(PORT, HOSTNAME, () => {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log(`📡 Socket server ready on http://${HOSTNAME}:${PORT}`)
-    console.log(`🔌 Redis adapter active`)
-    console.log(`🔔 PgNotify listeners active`)
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
+    log.info({
+      port: PORT,
+      host: HOSTNAME,
+      redisAdapter: true,
+      pgNotify: true,
+    }, 'socket-server ready')
   })
 
   // 8. Graceful shutdown
   const shutdown = async (signal: string) => {
-    console.log(`\n${signal} received, shutting down...`)
+    log.info({ signal }, 'shutdown signal received')
 
-    io.close(() => console.log('[Socket.io] All connections closed'))
+    io.close(() => ioLog.info('all socket connections closed'))
 
     try {
       await pgManager.disconnect()
-      console.log('[PgNotifyManager] Disconnected')
     } catch {
       pgManager.forceClose()
-      console.log('[PgNotifyManager] Force closed')
     }
 
     await pubClient.quit()
     await subClient.quit()
-    console.log('[Redis] Disconnected')
+    log.info('redis disconnected')
 
     httpServer.close(() => {
-      console.log('[Server] Closed')
+      log.info('http server closed')
       process.exit(0)
     })
 
     setTimeout(() => {
-      console.error('[Server] Forceful shutdown after timeout')
+      log.error('forceful shutdown after timeout')
       process.exit(1)
     }, 10000)
   }
@@ -144,15 +145,15 @@ async function startServer() {
   process.on('SIGTERM', () => shutdown('SIGTERM'))
   process.on('SIGINT', () => shutdown('SIGINT'))
   process.on('uncaughtException', (err) => {
-    console.error('[Server] Uncaught exception:', err)
+    log.fatal({ err }, 'uncaught exception')
     shutdown('UNCAUGHT_EXCEPTION')
   })
   process.on('unhandledRejection', (reason) => {
-    console.error('[Server] Unhandled rejection:', reason)
+    log.error({ reason }, 'unhandled promise rejection')
   })
 }
 
 startServer().catch((err) => {
-  console.error('[Server] Failed to start:', err)
+  log.fatal({ err }, 'socket-server failed to start')
   process.exit(1)
 })

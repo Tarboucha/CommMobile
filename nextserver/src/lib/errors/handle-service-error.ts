@@ -1,5 +1,6 @@
 import { ApiErrors } from "@/lib/utils/api-response";
 import { getRequestId } from "@/lib/request-context";
+import { log } from "@/lib/log";
 import {
   DomainError,
   NotFoundError,
@@ -53,6 +54,6 @@ export function handleServiceError(err: unknown) {
   if (err instanceof DomainError) return ApiErrors.badRequest(err.message);
 
   // Unknown errors — log with request ID and return 500
-  console.error(`[${getRequestId()}] unhandled service error:`, err);
+  log.error({ reqId: getRequestId(), err }, "unhandled service error");
   return ApiErrors.serverError();
 }

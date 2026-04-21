@@ -21,7 +21,7 @@ export async function expireAttachments(): Promise<{ deleted: number }> {
   )
 
   if (rows.length === 0) {
-    log.info('expire-attachments: nothing to delete', { duration_ms: Date.now() - started })
+    log.info({ durationMs: Date.now() - started }, 'expire-attachments: nothing to delete')
     return { deleted: 0 }
   }
 
@@ -49,25 +49,25 @@ export async function expireAttachments(): Promise<{ deleted: number }> {
       r2Deleted += chunk.length - (result.Errors?.length ?? 0)
       r2Failed += result.Errors?.length ?? 0
       if (result.Errors?.length) {
-        log.warn('expire-attachments: some R2 deletes failed', {
+        log.warn({
           errors: result.Errors.slice(0, 5),
-        })
+        }, 'expire-attachments: some R2 deletes failed')
       }
     } catch (err) {
       r2Failed += chunk.length
-      log.error('expire-attachments: R2 chunk delete failed', {
-        error: err instanceof Error ? err.message : String(err),
-        chunk_size: chunk.length,
-      })
+      log.error({
+        err,
+        chunkSize: chunk.length,
+      }, 'expire-attachments: R2 chunk delete failed')
     }
   }
 
-  log.info('expire-attachments: done', {
-    db_deleted: rows.length,
-    r2_deleted: r2Deleted,
-    r2_failed: r2Failed,
-    duration_ms: Date.now() - started,
-  })
+  log.info({
+    dbDeleted: rows.length,
+    r2Deleted,
+    r2Failed,
+    durationMs: Date.now() - started,
+  }, 'expire-attachments: done')
 
   return { deleted: rows.length }
 }

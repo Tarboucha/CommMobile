@@ -1,10 +1,12 @@
 /**
  * Rate Limiter Utility
  * Prevents abuse by limiting requests per identifier (IP address or email)
- * 
+ *
  * Uses in-memory storage with automatic cleanup of expired entries
  * Supports multiple rate limiters with different configurations
  */
+
+import { log } from "@/lib/log";
 
 // ============================================================================
 // Types
@@ -198,9 +200,11 @@ class RateLimiter {
     }
 
     if (removedCount > 0) {
-      console.log(
-        `[Rate Limiter: ${this.name}] Cleaned up ${removedCount} expired entries. Remaining: ${this.entries.size}`
-      );
+      log.debug({
+        limiter: this.name,
+        removed: removedCount,
+        remaining: this.entries.size,
+      }, "rate-limiter cleanup");
     }
   }
 
