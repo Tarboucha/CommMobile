@@ -15,7 +15,7 @@ export default {
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.kodo.app',
+      bundleIdentifier: 'com.comchefs.app',
     },
     android: {
       adaptiveIcon: {
@@ -24,7 +24,7 @@ export default {
         monochromeImage: './src/assets/images/android-icon-monochrome.png',
         backgroundColor: '#ffffff',
       },
-      package: 'com.kodo.app',
+      package: 'com.comchefs.app',
       // Allow HTTP traffic for local development
       usesCleartextTraffic: true,
       // Firebase for push notifications
@@ -56,6 +56,7 @@ export default {
           mode: 'production',
         },
       ],
+      '@react-native-google-signin/google-signin',
     ],
     experiments: {
       typedRoutes: true,

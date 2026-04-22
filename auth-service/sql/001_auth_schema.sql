@@ -63,3 +63,19 @@ DROP TRIGGER IF EXISTS trg_auth_users_updated_at ON auth.users;
 CREATE TRIGGER trg_auth_users_updated_at
   BEFORE UPDATE ON auth.users
   FOR EACH ROW EXECUTE FUNCTION auth.set_updated_at();
+
+-- Third-party sign-in (Google today, Apple/Facebook/etc. later).
+-- Users authenticated via OAuth have no password_hash.
+ALTER TABLE auth.users ALTER COLUMN password_hash DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS auth.identity_providers (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  provider         TEXT NOT NULL,           -- 'google', 'apple', ...
+  provider_user_id TEXT NOT NULL,           -- the 'sub' claim from the provider
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_identity_providers_user_id
+  ON auth.identity_providers(user_id);

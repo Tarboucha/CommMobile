@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
+import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import { Text } from '@/components/ui/text';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/pages/account/shared/password-input';
@@ -9,7 +10,7 @@ import { useLogin } from '@/hooks/use-login';
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const { handleLogin, loading } = useLogin();
+  const { handleLogin, handleGoogleLogin, loading } = useLogin();
 
   return (
     <View className="flex-1 bg-background justify-center p-6">
@@ -50,6 +51,21 @@ export default function LoginScreen() {
             <Text>Sign In</Text>
           )}
         </Button>
+
+        <View className="flex-row items-center my-2">
+          <View className="flex-1 h-px bg-border" />
+          <Text className="px-3 text-sm text-muted-foreground">or</Text>
+          <View className="flex-1 h-px bg-border" />
+        </View>
+
+        <View className="items-center">
+          <GoogleSigninButton
+            size={GoogleSigninButton.Size.Wide}
+            color={GoogleSigninButton.Color.Dark}
+            onPress={handleGoogleLogin}
+            disabled={loading}
+          />
+        </View>
 
         <View className="flex-row justify-center items-center gap-1 mt-6">
           <Text className="text-base text-muted-foreground">Don&apos;t have an account?</Text>

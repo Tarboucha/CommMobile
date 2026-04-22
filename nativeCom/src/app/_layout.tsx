@@ -15,6 +15,10 @@ import { AppDrawer } from '@/components/navigation/app-drawer';
 import { ExpoPushTokenManager } from '@/components/push/expo-push-token-manager';
 import { useTheme } from '@/hooks/use-theme';
 import { NAV_COLORS } from '@/lib/constants/nav-colors';
+import { configureGoogleSignIn } from '@/lib/google-signin';
+
+// One-time SDK init. Runs at module load (before any screen mounts).
+configureGoogleSignIn();
 
 export { RouteErrorBoundary as ErrorBoundary } from '@/components/error/route-error-boundary';
 

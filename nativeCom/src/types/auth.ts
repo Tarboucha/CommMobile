@@ -28,6 +28,8 @@ export interface LoginResult {
   success: boolean;
   error?: LoginError;
   profile?: User;
+  requiresOnboarding?: boolean;
+  requiresProfileCompletion?: boolean;
 }
 
 export interface SignUpResult {
@@ -41,6 +43,7 @@ export type LoginError =
   | { type: 'invalid_credentials'; message: string }
   | { type: 'email_not_confirmed'; message: string }
   | { type: 'account_suspended'; message: string }
+  | { type: 'payment_required'; message: string }
   | { type: 'session_failed'; message: string }
   | { type: 'unknown'; message: string };
 

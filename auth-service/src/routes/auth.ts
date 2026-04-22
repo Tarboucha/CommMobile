@@ -10,6 +10,7 @@ import {
   REFRESH_TOKEN_TTL,
 } from '../jwt.js'
 import { sendVerificationEmail, sendPasswordResetEmail } from '../email.js'
+import { verifyGoogleIdToken, type GoogleClaims } from '../google.js'
 
 const BCRYPT_ROUNDS = 10
 const VERIFICATION_RESEND_COOLDOWN_SECONDS = parseInt(
@@ -44,6 +45,78 @@ async function consumeVerificationToken(token: string): Promise<{ ok: boolean }>
     [verificationId],
   )
   return { ok: true }
+}
+
+/**
+ * Find or create the KoDo user for a Google-verified identity, linking the
+ * provider along the way. Runs in a transaction so two concurrent sign-ins
+ * can't race and create duplicate users.
+ */
+async function upsertGoogleUser(claims: GoogleClaims): Promise<string> {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+
+    // 1. Already linked via identity_providers? Fast path, no writes needed.
+    const linked = await client.query(
+      `SELECT user_id FROM auth.identity_providers
+       WHERE provider = 'google' AND provider_user_id = $1`,
+      [claims.sub],
+    )
+    if (linked.rows.length > 0) {
+      await client.query('COMMIT')
+      return linked.rows[0].user_id as string
+    }
+
+    // 2. User with the same email already exists → link Google to them.
+    //    Safe because we only reach here with Google's email_verified=true,
+    //    meaning Google has proven mailbox ownership — stronger signal than
+    //    our own verification flow.
+    const existing = await client.query(
+      'SELECT id FROM auth.users WHERE email = $1',
+      [claims.email],
+    )
+
+    let userId: string
+    if (existing.rows.length > 0) {
+      userId = existing.rows[0].id as string
+      await client.query(
+        `UPDATE auth.users SET email_verified = true
+         WHERE id = $1 AND email_verified = false`,
+        [userId],
+      )
+    } else {
+      // 3. Brand new user — no password, email pre-verified by Google.
+      const inserted = await client.query(
+        `INSERT INTO auth.users (email, password_hash, email_verified)
+         VALUES ($1, NULL, true) RETURNING id`,
+        [claims.email],
+      )
+      userId = inserted.rows[0].id as string
+
+      // Mirror the profile row, same way /auth/register does.
+      await client.query(
+        `INSERT INTO public.profiles (id, email, auth_user_id) VALUES ($1, $2, $1)`,
+        [userId, claims.email],
+      )
+    }
+
+    // 4. Link the provider (idempotent via UNIQUE constraint).
+    await client.query(
+      `INSERT INTO auth.identity_providers (user_id, provider, provider_user_id)
+       VALUES ($1, 'google', $2)
+       ON CONFLICT DO NOTHING`,
+      [userId, claims.sub],
+    )
+
+    await client.query('COMMIT')
+    return userId
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 function verifyResultPage(reply: any, status: number, title: string, body: string) {
@@ -172,6 +245,51 @@ export async function authRoutes(fastify: FastifyInstance) {
         `INSERT INTO auth.refresh_tokens (user_id, token, expires_at)
          VALUES ($1, $2, now() + $3 * interval '1 second')`,
         [user.id, refreshToken, REFRESH_TOKEN_TTL]
+      )
+
+      return reply.send({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: ACCESS_TOKEN_TTL,
+        token_type: 'Bearer',
+      })
+    }
+  )
+
+  // ── POST /auth/google ─────────────────────────────────────────────────────
+  // Accept a Google-issued ID token from the mobile app, verify it against
+  // Google's JWKS, then upsert the user and issue KoDo tokens. From the
+  // client's perspective the response shape matches /auth/login, so the
+  // post-sign-in flow is identical.
+  fastify.post<{ Body: { id_token: string } }>(
+    '/auth/google',
+    async (req, reply) => {
+      const { id_token } = req.body
+      if (!id_token) {
+        return reply.status(400).send({ message: 'id_token is required' })
+      }
+
+      let claims: GoogleClaims
+      try {
+        claims = await verifyGoogleIdToken(id_token)
+      } catch (err) {
+        req.log.warn({ err }, 'google id_token verification failed')
+        return reply.status(401).send({ message: 'Invalid Google token' })
+      }
+
+      const userId = await upsertGoogleUser(claims)
+
+      const accessToken = await signAccessToken({
+        sub: userId,
+        email: claims.email,
+        role: 'authenticated',
+      })
+
+      const refreshToken = generateRefreshToken()
+      await pool.query(
+        `INSERT INTO auth.refresh_tokens (user_id, token, expires_at)
+         VALUES ($1, $2, now() + $3 * interval '1 second')`,
+        [userId, refreshToken, REFRESH_TOKEN_TTL],
       )
 
       return reply.send({

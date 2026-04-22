@@ -1,4 +1,9 @@
 import * as SecureStore from 'expo-secure-store';
+import {
+  GoogleSignin,
+  isSuccessResponse,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { fetchMe } from '@/lib/api/auth';
 import { ApiClientError } from '@/lib/api/client';
 import type {
@@ -136,6 +141,119 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
     return {
       success: false,
       error: { type: 'unknown', message: error instanceof Error ? error.message : 'An unexpected error occurred' },
+    };
+  }
+}
+
+// ============================================================================
+// Google Sign-In Service
+// ============================================================================
+
+/**
+ * Sign in with Google.
+ *
+ * Flow:
+ * 1. Open native Google account picker, get ID token
+ * 2. POST to auth-service /auth/google, get KoDo access+refresh tokens
+ * 3. Store KoDo tokens in SecureStore
+ * 4. Validate with backend (business rules: suspended, onboarding, etc.)
+ *
+ * User cancellations are surfaced as a non-error success=false result so
+ * the caller can distinguish "silent dismiss" from real failures.
+ */
+export async function loginWithGoogle(): Promise<LoginResult> {
+  let idToken: string;
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const response = await GoogleSignin.signIn();
+
+    if (!isSuccessResponse(response)) {
+      // User dismissed the picker — treat as silent no-op, not an error.
+      return {
+        success: false,
+        error: { type: 'validation', message: 'Sign-in cancelled' },
+      };
+    }
+
+    const token = response.data.idToken;
+    if (!token) {
+      return {
+        success: false,
+        error: { type: 'unknown', message: 'No ID token returned from Google' },
+      };
+    }
+    idToken = token;
+  } catch (err: any) {
+    if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
+      return {
+        success: false,
+        error: { type: 'validation', message: 'Sign-in cancelled' },
+      };
+    }
+    return {
+      success: false,
+      error: {
+        type: 'unknown',
+        message: err instanceof Error ? err.message : 'Google sign-in failed',
+      },
+    };
+  }
+
+  try {
+    const res = await fetch(`${AUTH_URL}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      return {
+        success: false,
+        error: {
+          type: res.status === 401 ? 'invalid_credentials' : 'unknown',
+          message: data.message || 'Google sign-in was rejected',
+        },
+      };
+    }
+
+    await SecureStore.setItemAsync('access_token', data.access_token);
+    await SecureStore.setItemAsync('refresh_token', data.refresh_token);
+
+    try {
+      const response = await fetchMe();
+      const { profile } = response.data;
+      return { success: true, profile };
+    } catch (backendError) {
+      await clearTokens();
+      if (backendError instanceof ApiClientError && backendError.status === 403) {
+        return {
+          success: false,
+          error: {
+            type: 'account_suspended',
+            message:
+              'Your account has been suspended. Please contact support for assistance.',
+          },
+        };
+      }
+      return {
+        success: false,
+        error: {
+          type: 'unknown',
+          message:
+            'There was a problem accessing your account. Please try again later.',
+        },
+      };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'unknown',
+        message:
+          error instanceof Error ? error.message : 'An unexpected error occurred',
+      },
     };
   }
 }
