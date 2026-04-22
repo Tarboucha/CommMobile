@@ -14,11 +14,18 @@
  */
 
 import './load-env'
+import { Pool } from 'pg'
 
 const AUTH_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3004'
 const TEST_EMAIL = `e2e-auth-${Date.now()}@kodo.com`
 const PASSWORD = 'initial-pass-123'
 const NEW_PASSWORD = 'rotated-pass-456'
+
+// Direct DB access for reaching into auth.email_verifications — the
+// verification token isn't returned by any API (it goes out via email),
+// so the e2e consumes it straight from the table to simulate the user
+// clicking the link.
+const db = new Pool({ connectionString: process.env.DATABASE_URL })
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -70,6 +77,29 @@ async function main() {
   section('3. Login — wrong password rejected')
   const wrongLogin = await post('/auth/login', { email: TEST_EMAIL, password: 'wrong-pass' })
   assert(wrongLogin.status === 401, 'Login with wrong password → 401')
+
+  section('3a. Login — unverified email blocked with email_not_verified code')
+  const unverifiedLogin = await post('/auth/login', { email: TEST_EMAIL, password: PASSWORD })
+  assert(unverifiedLogin.status === 403, 'Unverified login → 403')
+  assert(unverifiedLogin.body.code === 'email_not_verified', 'Response carries code=email_not_verified')
+  assert(unverifiedLogin.body.email === TEST_EMAIL, 'Response echoes the email')
+
+  section('3b. Verify email — consume token from DB and POST /auth/verify-email')
+  const { rows: tokenRows } = await db.query(
+    `SELECT ev.token
+     FROM auth.email_verifications ev
+     JOIN auth.users u ON u.id = ev.user_id
+     WHERE u.email = $1 AND ev.used_at IS NULL
+     ORDER BY ev.created_at DESC LIMIT 1`,
+    [TEST_EMAIL]
+  )
+  assert(tokenRows.length === 1, 'Verification token row exists in DB')
+  const verifyResp = await post('/auth/verify-email', { token: tokenRows[0].token })
+  assert(verifyResp.status === 200, 'POST /auth/verify-email → 200')
+
+  // Second consume must fail — token is single-use
+  const verifyReplay = await post('/auth/verify-email', { token: tokenRows[0].token })
+  assert(verifyReplay.status === 400, 'Replay of same token → 400')
 
   section('4. Login — correct password returns tokens')
   const login = await post('/auth/login', { email: TEST_EMAIL, password: PASSWORD })
@@ -137,7 +167,10 @@ async function main() {
   console.log('═'.repeat(68))
 }
 
-main().catch((err) => {
-  console.error('\n✗ TEST FAILED:', err.message)
-  process.exit(1)
-})
+main()
+  .then(() => db.end())
+  .catch(async (err) => {
+    console.error('\n✗ TEST FAILED:', err.message)
+    await db.end().catch(() => {})
+    process.exit(1)
+  })

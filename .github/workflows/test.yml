@@ -77,11 +77,8 @@ jobs:
           cat > .env <<EOF
           DATABASE_URL=postgresql://kodo:testpassword@postgres:5432/kodo
           POSTGRES_PASSWORD=testpassword
-          SMTP_HOST=localhost
-          SMTP_PORT=1025
-          SMTP_USER=test
-          SMTP_PASS=test
-          SMTP_FROM=test@localhost
+          RESEND_API_KEY=re_test_dummy
+          MAIL_FROM=test@localhost
           APP_URL=http://localhost:3002
           R2_ENDPOINT=http://fake-r2:9000
           R2_ACCESS_KEY_ID=test

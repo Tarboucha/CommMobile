@@ -12,12 +12,61 @@ import {
 import { sendVerificationEmail, sendPasswordResetEmail } from '../email.js'
 
 const BCRYPT_ROUNDS = 10
+const VERIFICATION_RESEND_COOLDOWN_SECONDS = parseInt(
+  process.env.VERIFICATION_RESEND_COOLDOWN_SECONDS || '300',
+  10,
+)
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function extractBearerToken(authHeader: string | undefined): string | null {
   if (!authHeader?.startsWith('Bearer ')) return null
   return authHeader.slice(7)
+}
+
+/**
+ * Consume an email-verification token: mark the user as verified and the
+ * token as used. Returns ok=false when the token is missing, expired, or
+ * already consumed — callers should treat all three as "invalid link".
+ */
+async function consumeVerificationToken(token: string): Promise<{ ok: boolean }> {
+  const { rows } = await pool.query(
+    `SELECT id, user_id FROM auth.email_verifications
+     WHERE token = $1 AND used_at IS NULL AND expires_at > now()`,
+    [token],
+  )
+  if (rows.length === 0) return { ok: false }
+
+  const { id: verificationId, user_id } = rows[0]
+  await pool.query('UPDATE auth.users SET email_verified = true WHERE id = $1', [user_id])
+  await pool.query(
+    'UPDATE auth.email_verifications SET used_at = now() WHERE id = $1',
+    [verificationId],
+  )
+  return { ok: true }
+}
+
+function verifyResultPage(reply: any, status: number, title: string, body: string) {
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} — KoDo</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 480px; margin: 4rem auto; padding: 1.5rem; color: #222;
+         background: #fafafa; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+  p  { line-height: 1.5; color: #444; }
+</style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p>${body}</p>
+</body>
+</html>`
+  return reply.status(status).type('text/html; charset=utf-8').send(html)
 }
 
 // ─── Routes ─────────────────────────────────────────────────────────────────
@@ -100,6 +149,14 @@ export async function authRoutes(fastify: FastifyInstance) {
       const valid = await bcrypt.compare(password, user.password_hash)
       if (!valid) {
         return reply.status(401).send({ message: 'Invalid email or password' })
+      }
+
+      if (!user.email_verified) {
+        return reply.status(403).send({
+          message: 'Please verify your email before signing in',
+          code: 'email_not_verified',
+          email: user.email,
+        })
       }
 
       // Sign access token — sub = user.id = profile ID
@@ -229,6 +286,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   })
 
   // ── POST /auth/verify-email ───────────────────────────────────────────────
+  // For programmatic callers (mobile app, tests). Returns JSON.
   fastify.post<{ Body: { token: string } }>(
     '/auth/verify-email',
     async (req, reply) => {
@@ -237,22 +295,85 @@ export async function authRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ message: 'Token is required' })
       }
 
-      const { rows } = await pool.query(
-        `SELECT ev.id, ev.user_id FROM auth.email_verifications ev
-         WHERE ev.token = $1 AND ev.used_at IS NULL AND ev.expires_at > now()`,
-        [token]
-      )
-
-      if (rows.length === 0) {
+      const result = await consumeVerificationToken(token)
+      if (!result.ok) {
         return reply.status(400).send({ message: 'Invalid or expired verification token' })
       }
 
-      const { id: verificationId, user_id } = rows[0]
-
-      await pool.query('UPDATE auth.users SET email_verified = true WHERE id = $1', [user_id])
-      await pool.query('UPDATE auth.email_verifications SET used_at = now() WHERE id = $1', [verificationId])
-
       return reply.send({ message: 'Email verified' })
+    }
+  )
+
+  // ── GET /auth/verify-email?token=... ──────────────────────────────────────
+  // The URL embedded in the verification email — clicked from a browser.
+  // Returns a minimal HTML page so the user sees a clear success/failure.
+  fastify.get<{ Querystring: { token?: string } }>(
+    '/auth/verify-email',
+    async (req, reply) => {
+      const token = req.query.token
+      if (!token) {
+        return verifyResultPage(reply, 400, 'Missing token',
+          'This link is incomplete. Open the email again and click the full link.')
+      }
+
+      const result = await consumeVerificationToken(token)
+      if (!result.ok) {
+        return verifyResultPage(reply, 400, 'Link expired or invalid',
+          'Request a new verification email from the KoDo app.')
+      }
+
+      return verifyResultPage(reply, 200, 'Email verified',
+        'You can now sign in to the KoDo app.')
+    }
+  )
+
+  // ── POST /auth/resend-verification ────────────────────────────────────────
+  // Re-issue a verification email. Always returns 200 so we don't leak
+  // whether an account exists or has already been verified. A DB-level
+  // cooldown (VERIFICATION_RESEND_COOLDOWN_SECONDS, default 5min) prevents
+  // triggering multiple emails when a user taps "resend" repeatedly.
+  fastify.post<{ Body: { email: string } }>(
+    '/auth/resend-verification',
+    async (req, reply) => {
+      const { email } = req.body
+      if (!email) {
+        return reply.status(400).send({ message: 'Email is required' })
+      }
+
+      const normalizedEmail = email.toLowerCase().trim()
+      const { rows } = await pool.query(
+        'SELECT id, email_verified FROM auth.users WHERE email = $1',
+        [normalizedEmail],
+      )
+
+      if (rows.length > 0 && !rows[0].email_verified) {
+        const userId = rows[0].id
+
+        const { rows: recent } = await pool.query(
+          `SELECT 1 FROM auth.email_verifications
+           WHERE user_id = $1 AND created_at > now() - ($2 || ' seconds')::interval
+           LIMIT 1`,
+          [userId, VERIFICATION_RESEND_COOLDOWN_SECONDS],
+        )
+
+        if (recent.length === 0) {
+          const token = randomBytes(32).toString('hex')
+          await pool.query(
+            `INSERT INTO auth.email_verifications (user_id, token, expires_at)
+             VALUES ($1, $2, now() + interval '24 hours')`,
+            [userId, token],
+          )
+          try {
+            await sendVerificationEmail(normalizedEmail, token)
+          } catch (err) {
+            req.log.error({ err, email: normalizedEmail }, 'failed to resend verification email')
+          }
+        }
+      }
+
+      return reply.send({
+        message: 'If that account needs verification, a link has been sent',
+      })
     }
   )
 
