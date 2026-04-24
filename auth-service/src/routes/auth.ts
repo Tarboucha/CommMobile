@@ -94,10 +94,19 @@ async function upsertGoogleUser(claims: GoogleClaims): Promise<string> {
       )
       userId = inserted.rows[0].id as string
 
-      // Mirror the profile row, same way /auth/register does.
+      // Mirror the profile row. Prefill name fields from Google claims so
+      // most users never see the onboarding screen.
       await client.query(
-        `INSERT INTO public.profiles (id, email, auth_user_id) VALUES ($1, $2, $1)`,
-        [userId, claims.email],
+        `INSERT INTO public.profiles
+         (id, email, auth_user_id, first_name, last_name, display_name)
+         VALUES ($1, $2, $1, $3, $4, $5)`,
+        [
+          userId,
+          claims.email,
+          claims.given_name ?? null,
+          claims.family_name ?? null,
+          claims.name ?? null,
+        ],
       )
     }
 

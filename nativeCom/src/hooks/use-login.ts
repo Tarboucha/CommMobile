@@ -41,11 +41,7 @@ export function useLogin() {
     }
 
     if (result.requiresOnboarding) {
-      Alert.alert(
-        'Complete Your Profile',
-        'Please complete your profile to continue.',
-        [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
-      );
+      router.replace('/auth/onboarding');
       return;
     }
 

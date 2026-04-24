@@ -7,7 +7,12 @@ import type { ImagePickerAsset } from 'expo-image-picker';
  */
 export async function updateProfile(
   profileId: string,
-  data: { first_name?: string; last_name?: string; phone?: string | null }
+  data: {
+    first_name?: string
+    last_name?: string
+    display_name?: string
+    phone?: string | null
+  }
 ) {
   return fetchAPI(`/api/v1/profiles/${profileId}`, {
     method: 'PATCH',

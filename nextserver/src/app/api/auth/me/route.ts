@@ -10,7 +10,10 @@ import { withSecureAuth } from "@/lib/utils/api-route-helper"
  * Uses withSecureAuth (getUser) for mobile JWT validation with Authorization header
  */
 export const GET = withSecureAuth(async (user, _request: NextRequest) => {
-  return successResponse({ profile: user });
+  // Onboarding = Pflichtfelder; Mobile-Client routet in den onboarding-Screen
+  // wenn true. Heute reichen first_name + last_name; später ggfs. erweitern.
+  const requiresOnboarding = !user.first_name || !user.last_name;
+  return successResponse({ profile: user, requiresOnboarding });
 })
 
 // Catch unsupported methods

@@ -13,7 +13,9 @@ export interface GoogleClaims {
   sub: string
   email: string
   email_verified: boolean
-  name?: string
+  name?: string          // full display name
+  given_name?: string    // first name
+  family_name?: string   // last name
   picture?: string
 }
 
@@ -50,6 +52,8 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleClaims
     email: email.toLowerCase().trim(),
     email_verified: true,
     name: payload['name'] as string | undefined,
+    given_name: payload['given_name'] as string | undefined,
+    family_name: payload['family_name'] as string | undefined,
     picture: payload['picture'] as string | undefined,
   }
 }
