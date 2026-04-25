@@ -1,94 +1,87 @@
 import { View } from 'react-native';
-import { SectionContainer } from '@/components/shared/section-container';
-import { FeatureCard } from '@/components/shared/feature-card';
+import { Text } from '@/components/ui/text';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 interface Feature {
-  icon: string;
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   title: string;
   description: string;
-  link: string | null;
+  variant: 'light' | 'dark';
 }
 
 const features: Feature[] = [
   {
-    icon: '🏘️',
-    title: 'Community',
-    description: 'Join your neighbourhood community and connect with people nearby.',
-    link: '/communities',
+    icon: 'handshake-outline',
+    title: 'Skill Exchange',
+    description:
+      'Trade gardening tips for bread baking. Learn from neighbors who already master what you want to learn.',
+    variant: 'light',
   },
   {
-    icon: '🔍',
-    title: 'Browse Offerings',
-    description: 'Discover local offerings — food, products, services, sharing, and events.',
-    link: '/communities',
+    icon: 'archive-outline',
+    title: 'Borrow & Lend',
+    description:
+      'Why buy when you can borrow? Access tools, equipment, and household goods within 500 meters.',
+    variant: 'dark',
   },
   {
-    icon: '📋',
-    title: 'Bookings',
-    description: 'Book offerings, track your reservations, and manage everything in one place.',
-    link: null,
-  },
-  {
-    icon: '👤',
-    title: 'Profiles',
-    description: 'Manage your profile, addresses, and personal settings.',
-    link: null,
-  },
-  {
-    icon: '🛒',
-    title: 'Cart & Checkout',
-    description: 'Add offerings to your cart and check out with flexible payment options.',
-    link: null,
-  },
-  {
-    icon: '🔔',
-    title: 'Notifications',
-    description: 'Stay updated with booking changes, community news, and important updates.',
-    link: null,
-  },
-  {
-    icon: '📍',
-    title: 'Addresses',
-    description: 'Save and manage multiple addresses with location-based services.',
-    link: null,
-  },
-  {
-    icon: '📅',
-    title: 'Availability',
-    description: 'Providers set schedules, members pick time slots that work for them.',
-    link: null,
+    icon: 'shield-lock-outline',
+    title: 'Private to your community',
+    description:
+      'Closed groups where you join by invite or verified proximity. Only real neighbors.',
+    variant: 'light',
   },
 ];
 
-interface FeaturesSectionProps {
-  onNavigate: (path: string) => void;
+interface FeatureCardProps {
+  feature: Feature;
 }
 
-export function FeaturesSection({ onNavigate }: FeaturesSectionProps) {
-  const rows: Feature[][] = [];
-  for (let i = 0; i < features.length; i += 2) {
-    rows.push(features.slice(i, i + 2));
-  }
+function FeatureCard({ feature }: FeatureCardProps) {
+  const isDark = feature.variant === 'dark';
 
   return (
-    <SectionContainer
-      title="What KoDo Offers"
-      subtitle="A community marketplace connecting neighbours and local providers">
-      <View className="gap-4">
-        {rows.map((row, rowIndex) => (
-          <View key={rowIndex} className="flex-row gap-2">
-            {row.map((feature, index) => (
-              <FeatureCard
-                key={`${rowIndex}-${index}`}
-                icon={feature.icon}
-                title={feature.title}
-                description={feature.description}
-                onPress={feature.link ? () => onNavigate(feature.link!) : undefined}
-              />
-            ))}
-          </View>
-        ))}
-      </View>
-    </SectionContainer>
+    <View
+      className={
+        isDark
+          ? 'bg-primary rounded-3xl p-6 gap-3'
+          : 'bg-card rounded-3xl p-6 gap-3'
+      }
+      style={{
+        shadowColor: '#4a352f',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: isDark ? 0.15 : 0.08,
+        shadowRadius: 16,
+        elevation: 3,
+      }}
+    >
+      <MaterialCommunityIcons
+        name={feature.icon}
+        size={32}
+        color={isDark ? '#FAF7F2' : '#660000'}
+      />
+      <Text
+        className="font-semibold text-[22px] leading-[28px]"
+        style={{ color: isDark ? '#FAF7F2' : '#660000' }}
+      >
+        {feature.title}
+      </Text>
+      <Text
+        className="font-sans text-[15px] leading-[24px]"
+        style={{ color: isDark ? 'rgba(250, 247, 242, 0.85)' : '#78716C' }}
+      >
+        {feature.description}
+      </Text>
+    </View>
+  );
+}
+
+export function FeaturesSection() {
+  return (
+    <View className="px-6 pt-4 pb-8 gap-4">
+      {features.map((feature) => (
+        <FeatureCard key={feature.title} feature={feature} />
+      ))}
+    </View>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   View,
   ScrollView,
@@ -9,10 +9,8 @@ import {
   Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCommunityOfferings } from '@/hooks/queries/use-offerings';
 import { useCommunityPosts, useBoardFeed } from '@/hooks/queries/use-board';
@@ -46,7 +44,7 @@ function formatPriceShort(offering: Offering): string {
     }
     return 'Free loan';
   }
-  if (!offering.price_amount || offering.price_amount === 0) return 'Free';
+  if (!offering.price_amount || offering.price_amount === 0) return 'FREE';
   return `${offering.price_amount.toFixed(2)} ${offering.currency_code}`;
 }
 
@@ -80,131 +78,84 @@ function getInitials(name: string): string {
 }
 
 // ============================================================================
-// Bucket offerings by display category
+// Offering filter
 // ============================================================================
 
-type OfferingBucket = 'products' | 'services' | 'loans' | 'events';
+type OfferingFilter = 'all' | 'sell' | 'loan' | 'services' | 'events';
 
-interface BucketConfig {
-  key: OfferingBucket;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}
-
-const BUCKET_ORDER: BucketConfig[] = [
-  { key: 'products', label: 'Products', icon: 'cube-outline' },
-  { key: 'services', label: 'Services', icon: 'construct-outline' },
-  { key: 'loans', label: 'Loans', icon: 'arrow-forward-circle-outline' },
-  { key: 'events', label: 'Events', icon: 'calendar-outline' },
+const FILTER_OPTIONS: { key: OfferingFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'sell', label: 'Sell' },
+  { key: 'loan', label: 'Loan' },
+  { key: 'services', label: 'Services' },
+  { key: 'events', label: 'Events' },
 ];
 
-function getOfferingBucket(offering: Offering): OfferingBucket {
-  if (offering.category === 'service') return 'services';
-  if (offering.category === 'event') return 'events';
-  // category === 'product'
-  return offering.transaction_type === 'loan' ? 'loans' : 'products';
+function matchesFilter(offering: Offering, filter: OfferingFilter): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'loan') return offering.transaction_type === 'loan';
+  if (filter === 'services') return offering.category === 'service';
+  if (filter === 'events') return offering.category === 'event';
+  // 'sell'
+  return offering.category === 'product' && offering.transaction_type !== 'loan';
 }
 
-function bucketOfferings(offerings: Offering[]): Record<OfferingBucket, Offering[]> {
-  const buckets: Record<OfferingBucket, Offering[]> = {
-    products: [],
-    services: [],
-    loans: [],
-    events: [],
-  };
-  for (const o of offerings) {
-    buckets[getOfferingBucket(o)].push(o);
-  }
-  return buckets;
+function offeringBadgeText(offering: Offering): string {
+  if (offering.transaction_type === 'loan') return 'Loan';
+  if (offering.category === 'event') return 'Event';
+  if (offering.category === 'service') return 'Service';
+  return 'Sell';
 }
 
 // ============================================================================
-// CompactOfferingCard — used in horizontal rows
+// Avatar (small, with initials fallback)
 // ============================================================================
 
-const CARD_WIDTH = 160;
-
-function CompactOfferingCard({
-  offering,
-  onPress,
-  onLongPress,
+function MiniAvatar({
+  url,
+  name,
+  size = 24,
 }: {
-  offering: Offering;
-  onPress: () => void;
-  onLongPress?: () => void;
+  url: string | null | undefined;
+  name: string;
+  size?: number;
 }) {
-  const isLoan = offering.transaction_type === 'loan';
-  const isEvent = offering.category === 'event';
-  const isService = offering.category === 'service';
-
-  let badgeColor: string;
-  let badgeText: string;
-  if (isLoan) {
-    badgeColor = 'bg-purple-100 text-purple-800';
-    badgeText = 'Borrow';
-  } else if (isEvent) {
-    badgeColor = 'bg-amber-100 text-amber-800';
-    badgeText = 'Event';
-  } else if (isService) {
-    badgeColor = 'bg-green-100 text-green-800';
-    badgeText = 'Service';
-  } else {
-    badgeColor = 'bg-blue-100 text-blue-800';
-    badgeText = 'Product';
+  if (url) {
+    return (
+      <Image
+        source={{ uri: url }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 1,
+          borderColor: '#FFFFFF',
+        }}
+      />
+    );
   }
-
-  const [bgClass, textClass] = badgeColor.split(' ');
-
   return (
-    <Pressable
-      onPress={onPress}
-      onLongPress={onLongPress}
-      style={{ width: CARD_WIDTH }}
-      className="mr-3 rounded-xl border border-neutral-200 bg-white dark:bg-neutral-950 dark:border-neutral-800 overflow-hidden active:opacity-80"
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: '#F5E6D3',
+        borderWidth: 1,
+        borderColor: '#FFFFFF',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
     >
-      {/* Image / placeholder */}
-      <View className="w-full bg-muted aspect-square items-center justify-center">
-        {offering.image_url ? (
-          <Image
-            source={{ uri: offering.image_url }}
-            className="w-full h-full"
-            resizeMode="cover"
-          />
-        ) : (
-          <Ionicons
-            name={
-              isLoan
-                ? 'arrow-forward-circle-outline'
-                : isEvent
-                  ? 'calendar-outline'
-                  : isService
-                    ? 'construct-outline'
-                    : 'cube-outline'
-            }
-            size={36}
-            color="#a8a29e"
-          />
-        )}
-      </View>
-
-      {/* Body */}
-      <View className="p-2.5 gap-1">
-        <View className={`self-start px-1.5 py-0.5 rounded ${bgClass}`}>
-          <Text className={`text-[10px] font-semibold ${textClass}`}>{badgeText}</Text>
-        </View>
-        <Text className="text-sm font-semibold text-foreground" numberOfLines={1}>
-          {offering.title}
-        </Text>
-        <Text className="text-xs font-bold text-primary" numberOfLines={1}>
-          {formatPriceShort(offering)}
-        </Text>
-      </View>
-    </Pressable>
+      <Text style={{ color: '#660000', fontSize: size * 0.4, fontWeight: '700' }}>
+        {getInitials(name)}
+      </Text>
+    </View>
   );
 }
 
 // ============================================================================
-// PostCard
+// PostCard — editorial white card
 // ============================================================================
 
 function PostCard({
@@ -221,45 +172,58 @@ function PostCard({
 
   return (
     <Pressable
-      className="mx-4 mb-3 rounded-xl border border-neutral-200 bg-white shadow-sm shadow-black/5 dark:bg-neutral-950 dark:border-neutral-800 overflow-hidden active:opacity-80"
       onPress={onPress}
       onLongPress={onLongPress}
-      style={{ elevation: 1 }}
+      className="rounded-2xl overflow-hidden active:opacity-90"
+      style={{
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#4a352f',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+        elevation: 2,
+      }}
     >
-      <View className="p-4">
+      <View className="p-5">
         {/* Author row */}
         <View className="flex-row items-center mb-3">
-          <Avatar className="w-9 h-9">
-            {avatarUrl ? (
-              <AvatarImage source={{ uri: avatarUrl }} />
-            ) : (
-              <AvatarFallback>
-                <Text className="text-xs font-semibold text-neutral-500">
-                  {getInitials(authorName)}
-                </Text>
-              </AvatarFallback>
-            )}
-          </Avatar>
-          <View className="ml-2.5 flex-1">
-            <Text className="text-sm font-semibold text-foreground">{authorName}</Text>
-            <Text className="text-xs text-muted-foreground">{timeAgo(post.created_at)}</Text>
+          <MiniAvatar url={avatarUrl} name={authorName} size={32} />
+          <View className="ml-3 flex-1">
+            <Text className="font-bold" style={{ color: '#1C1917', fontSize: 13 }}>
+              {authorName}
+            </Text>
+            <Text className="font-sans" style={{ color: '#A8A29E', fontSize: 11 }}>
+              {timeAgo(post.created_at)}
+            </Text>
           </View>
-          <Badge variant="secondary">
-            <Text className="text-xs font-medium">Post</Text>
-          </Badge>
         </View>
 
+        {/* Title (real DB column, optional) */}
+        {post.title && (
+          <Text
+            className="font-bold mb-2"
+            style={{ color: '#3E0000', fontSize: 16, lineHeight: 22 }}
+            numberOfLines={2}
+          >
+            {post.title}
+          </Text>
+        )}
+
         {/* Body */}
-        <Text className="text-sm text-foreground leading-5" numberOfLines={4}>
+        <Text
+          className="font-sans"
+          style={{ color: '#58413E', fontSize: 14, lineHeight: 22 }}
+          numberOfLines={post.title ? 3 : 4}
+        >
           {post.body}
         </Text>
 
         {/* Optional image */}
         {post.image_url && (
-          <View className="mt-3 rounded-lg overflow-hidden">
+          <View className="mt-3 rounded-xl overflow-hidden">
             <Image
               source={{ uri: post.image_url }}
-              className="w-full rounded-lg"
+              className="w-full"
               style={{ aspectRatio: 16 / 9 }}
               resizeMode="cover"
             />
@@ -269,14 +233,18 @@ function PostCard({
         {/* Optional link */}
         {post.link_url && (
           <Pressable
-            className="mt-3 flex-row items-center gap-2 px-3 py-2.5 bg-neutral-50 rounded-lg dark:bg-neutral-900"
             onPress={() => Linking.openURL(post.link_url!)}
+            className="mt-3 flex-row items-center gap-2 px-3 py-2 rounded-lg"
+            style={{ backgroundColor: '#F5E6D3' }}
           >
-            <Ionicons name="link-outline" size={16} color="#78716C" />
-            <Text className="text-xs text-primary flex-1" numberOfLines={1}>
+            <MaterialCommunityIcons name="link-variant" size={14} color="#660000" />
+            <Text
+              className="flex-1 font-semibold"
+              style={{ color: '#660000', fontSize: 12 }}
+              numberOfLines={1}
+            >
               {post.link_url}
             </Text>
-            <Ionicons name="open-outline" size={14} color="#78716C" />
           </Pressable>
         )}
       </View>
@@ -285,49 +253,174 @@ function PostCard({
 }
 
 // ============================================================================
-// Category row
+// OfferingGridCard — square image + badge + title + price + author
 // ============================================================================
 
-function CategoryRow({
-  config,
-  offerings,
-  onItemPress,
-  onItemLongPress,
+function OfferingGridCard({
+  offering,
+  onPress,
+  onLongPress,
 }: {
-  config: BucketConfig;
-  offerings: Offering[];
-  onItemPress: (offering: Offering) => void;
-  onItemLongPress?: (offering: Offering) => void;
+  offering: Offering;
+  onPress: () => void;
+  onLongPress?: () => void;
 }) {
-  if (offerings.length === 0) return null;
+  const providerName = getProviderName(offering);
+  const avatarUrl = offering.profiles?.avatar_url;
 
   return (
-    <View className="mb-5">
-      <View className="flex-row items-center gap-2 px-4 mb-2">
-        <Ionicons name={config.icon} size={16} color="#660000" />
-        <Text className="text-base font-bold text-foreground">{config.label}</Text>
-        <Text className="text-xs text-muted-foreground">({offerings.length})</Text>
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16 }}
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      className="active:opacity-90"
+      style={{ flex: 1 }}
+    >
+      <View
+        className="rounded-3xl overflow-hidden mb-3 aspect-square"
+        style={{
+          backgroundColor: '#F5E6D3',
+          shadowColor: '#4a352f',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.06,
+          shadowRadius: 16,
+          elevation: 2,
+        }}
       >
-        {offerings.map((offering) => (
-          <CompactOfferingCard
-            key={offering.id}
-            offering={offering}
-            onPress={() => onItemPress(offering)}
-            onLongPress={onItemLongPress ? () => onItemLongPress(offering) : undefined}
+        {offering.image_url ? (
+          <Image
+            source={{ uri: offering.image_url }}
+            className="w-full h-full"
+            resizeMode="cover"
           />
-        ))}
-      </ScrollView>
+        ) : (
+          <View className="w-full h-full items-center justify-center">
+            <MaterialCommunityIcons name="image-outline" size={36} color="#A8A29E" />
+          </View>
+        )}
+
+        {/* Category badge */}
+        <View
+          className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-full"
+          style={{ backgroundColor: '#F5DDDA' }}
+        >
+          <Text
+            className="font-bold uppercase"
+            style={{ color: '#660000', fontSize: 10, letterSpacing: 0.4 }}
+          >
+            {offeringBadgeText(offering)}
+          </Text>
+        </View>
+      </View>
+
+      <Text
+        className="font-bold leading-snug"
+        style={{ color: '#660000', fontSize: 14 }}
+        numberOfLines={2}
+      >
+        {offering.title}
+      </Text>
+
+      <Text
+        className="font-bold mt-1"
+        style={{ color: '#660000', fontSize: 13 }}
+      >
+        {formatPriceShort(offering)}
+      </Text>
+
+      <View className="flex-row items-center gap-1.5 mt-2">
+        <MiniAvatar url={avatarUrl} name={providerName} size={20} />
+        <Text
+          className="font-medium"
+          style={{ color: '#A8A29E', fontSize: 11 }}
+          numberOfLines={1}
+        >
+          {providerName}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+// ============================================================================
+// Filter pills row
+// ============================================================================
+
+function OfferingFilters({
+  value,
+  onChange,
+}: {
+  value: OfferingFilter;
+  onChange: (f: OfferingFilter) => void;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ paddingHorizontal: 24, gap: 8 }}
+    >
+      {FILTER_OPTIONS.map((opt) => {
+        const active = opt.key === value;
+        return (
+          <Pressable
+            key={opt.key}
+            onPress={() => onChange(opt.key)}
+            className="px-5 py-2 rounded-full active:opacity-80"
+            style={{ backgroundColor: active ? '#660000' : '#F5E6D3' }}
+          >
+            <Text
+              className="font-bold"
+              style={{
+                color: active ? '#FAF7F2' : '#675D4E',
+                fontSize: 12,
+                letterSpacing: 0.3,
+              }}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+// ============================================================================
+// Section header
+// ============================================================================
+
+function SectionHeader({
+  label,
+  rightLabel,
+  onRightPress,
+}: {
+  label: string;
+  rightLabel?: string;
+  onRightPress?: () => void;
+}) {
+  return (
+    <View className="flex-row items-center justify-between mb-3">
+      <Text
+        className="font-bold uppercase"
+        style={{ color: '#78716C', fontSize: 11, letterSpacing: 1.5 }}
+      >
+        {label}
+      </Text>
+      {rightLabel && onRightPress && (
+        <Pressable onPress={onRightPress} hitSlop={8}>
+          <Text
+            className="font-semibold"
+            style={{ color: '#660000', fontSize: 13 }}
+          >
+            {rightLabel}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
 
 // ============================================================================
-// Pinned banner
+// Pinned banner (existing pinning feature — separate from "Announcements")
 // ============================================================================
 
 function PinnedBanner({
@@ -342,32 +435,39 @@ function PinnedBanner({
   onUnpin: () => void;
 }) {
   return (
-    <View className="mx-4 mb-4">
+    <View className="mb-5">
       <View className="flex-row items-center justify-between mb-2">
         <View className="flex-row items-center gap-1.5">
-          <Ionicons name="pin" size={14} color="#d97706" />
-          <Text className="text-xs font-semibold text-amber-600">Pinned</Text>
+          <MaterialCommunityIcons name="pin" size={14} color="#d97706" />
+          <Text
+            className="font-bold uppercase"
+            style={{ color: '#d97706', fontSize: 11, letterSpacing: 1 }}
+          >
+            Pinned
+          </Text>
         </View>
         {isOwnerOrAdmin && (
-          <Pressable className="px-2.5 py-1 rounded-md active:bg-muted" onPress={onUnpin}>
-            <Text className="text-xs text-muted-foreground">Unpin</Text>
+          <Pressable onPress={onUnpin} hitSlop={8}>
+            <Text
+              className="font-semibold"
+              style={{ color: '#A8A29E', fontSize: 12 }}
+            >
+              Unpin
+            </Text>
           </Pressable>
         )}
       </View>
 
-      <View className="border-l-[3px] border-amber-500 rounded-r-xl">
-        {pinned.offering ? (
-          <PostLikeOfferingPreview offering={pinned.offering} onPress={onPress} />
-        ) : pinned.post ? (
-          <PostCard post={pinned.post} onPress={onPress} />
-        ) : null}
-      </View>
+      {pinned.offering ? (
+        <PinnedOfferingCard offering={pinned.offering} onPress={onPress} />
+      ) : pinned.post ? (
+        <PostCard post={pinned.post} onPress={onPress} />
+      ) : null}
     </View>
   );
 }
 
-/** Wider offering preview used only for the pinned banner — looks like a post card */
-function PostLikeOfferingPreview({
+function PinnedOfferingCard({
   offering,
   onPress,
 }: {
@@ -379,36 +479,51 @@ function PostLikeOfferingPreview({
 
   return (
     <Pressable
-      className="mx-0 rounded-xl border border-neutral-200 bg-white dark:bg-neutral-950 dark:border-neutral-800 overflow-hidden active:opacity-80"
       onPress={onPress}
+      className="rounded-2xl overflow-hidden active:opacity-90"
+      style={{
+        backgroundColor: '#FFFFFF',
+        shadowColor: '#4a352f',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.06,
+        shadowRadius: 16,
+        elevation: 2,
+      }}
     >
-      <View className="p-4">
+      <View className="p-5">
         <View className="flex-row items-center mb-3">
-          <Avatar className="w-9 h-9">
-            {avatarUrl ? (
-              <AvatarImage source={{ uri: avatarUrl }} />
-            ) : (
-              <AvatarFallback>
-                <Text className="text-xs font-semibold text-neutral-500">
-                  {getInitials(providerName)}
-                </Text>
-              </AvatarFallback>
-            )}
-          </Avatar>
-          <View className="ml-2.5 flex-1">
-            <Text className="text-sm font-semibold text-foreground">{providerName}</Text>
-            <Text className="text-xs text-muted-foreground">{timeAgo(offering.created_at)}</Text>
+          <MiniAvatar url={avatarUrl} name={providerName} size={32} />
+          <View className="ml-3 flex-1">
+            <Text className="font-bold" style={{ color: '#1C1917', fontSize: 13 }}>
+              {providerName}
+            </Text>
+            <Text className="font-sans" style={{ color: '#A8A29E', fontSize: 11 }}>
+              {timeAgo(offering.created_at)}
+            </Text>
           </View>
         </View>
-        <Text className="text-base font-semibold text-foreground mb-1" numberOfLines={2}>
+        <Text
+          className="font-bold mb-1"
+          style={{ color: '#660000', fontSize: 15, lineHeight: 20 }}
+          numberOfLines={2}
+        >
           {offering.title}
         </Text>
         {offering.description && (
-          <Text className="text-sm text-muted-foreground" numberOfLines={2}>
+          <Text
+            className="font-sans"
+            style={{ color: '#58413E', fontSize: 14, lineHeight: 22 }}
+            numberOfLines={2}
+          >
             {offering.description}
           </Text>
         )}
-        <Text className="text-sm font-bold text-primary mt-2">{formatPriceShort(offering)}</Text>
+        <Text
+          className="font-bold mt-2"
+          style={{ color: '#660000', fontSize: 14 }}
+        >
+          {formatPriceShort(offering)}
+        </Text>
       </View>
     </Pressable>
   );
@@ -420,30 +535,28 @@ function PostLikeOfferingPreview({
 
 function BoardSkeleton() {
   return (
-    <View className="px-4 pt-3">
+    <View className="px-6 pt-4">
       {[1, 2].map((i) => (
         <View
           key={i}
-          className="mb-3 rounded-xl border border-neutral-200 bg-white p-4 dark:bg-neutral-950 dark:border-neutral-800"
+          className="mb-4 rounded-2xl p-5"
+          style={{ backgroundColor: '#FFFFFF' }}
         >
           <View className="flex-row items-center mb-3">
-            <Skeleton className="w-9 h-9 rounded-full" />
-            <View className="ml-2.5 flex-1">
-              <Skeleton className="w-24 h-3.5 rounded" />
-              <Skeleton className="w-16 h-3 rounded mt-1" />
+            <Skeleton className="w-8 h-8 rounded-full" />
+            <View className="ml-3 flex-1">
+              <Skeleton className="w-24 h-3 rounded" />
+              <Skeleton className="w-16 h-2.5 rounded mt-1" />
             </View>
           </View>
-          <Skeleton className="w-full h-4 rounded mb-2" />
-          <Skeleton className="w-3/4 h-3.5 rounded" />
+          <Skeleton className="w-full h-3.5 rounded mb-2" />
+          <Skeleton className="w-3/4 h-3 rounded" />
         </View>
       ))}
-      <View className="mt-4">
-        <Skeleton className="w-32 h-4 rounded mb-2" />
-        <View className="flex-row gap-3">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="w-40 h-48 rounded-xl" />
-          ))}
-        </View>
+      <View className="mt-4 flex-row gap-3">
+        {[1, 2].map((i) => (
+          <Skeleton key={i} className="flex-1 aspect-square rounded-3xl" />
+        ))}
       </View>
     </View>
   );
@@ -461,31 +574,30 @@ interface BoardTabProps {
 
 export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: BoardTabProps) {
   const router = useRouter();
+  const [filter, setFilter] = useState<OfferingFilter>('all');
 
-  // Fetch posts and offerings independently
   const postsQuery = useCommunityPosts(communityId);
   const offeringsQuery = useCommunityOfferings(communityId, 100);
-  // Use the legacy board feed only for the pinned item
+  // Legacy board feed only used for the pinned item.
   const boardFeedQuery = useBoardFeed(communityId);
 
   const posts = postsQuery.data?.data ?? [];
   const pinned = boardFeedQuery.data?.pages[0]?.pinned ?? null;
 
-  // Memoize to keep a stable reference for the bucketing useMemo below.
   const offerings = useMemo(
     () => offeringsQuery.data?.data ?? [],
-    [offeringsQuery.data]
+    [offeringsQuery.data],
   );
-  const buckets = useMemo(() => bucketOfferings(offerings), [offerings]);
+  const filteredOfferings = useMemo(
+    () => offerings.filter((o) => matchesFilter(o, filter)),
+    [offerings, filter],
+  );
 
   const isLoading = postsQuery.isLoading || offeringsQuery.isLoading;
   const isRefreshing =
     (postsQuery.isFetching && !postsQuery.isLoading) ||
     (offeringsQuery.isFetching && !offeringsQuery.isLoading);
 
-  // Keep stable references to the refetch functions so useRefreshOnFocus
-  // doesn't trigger an infinite re-fetch loop. The query objects themselves
-  // are new refs every render, but query.refetch is stable.
   const refetchPosts = postsQuery.refetch;
   const refetchOfferings = offeringsQuery.refetch;
   const refetchBoardFeed = boardFeedQuery.refetch;
@@ -505,7 +617,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
         params: { communityId, offeringId: offering.id },
       });
     },
-    [router, communityId]
+    [router, communityId],
   );
 
   const handleOfferingLongPress = useCallback(
@@ -513,7 +625,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
       if (!isOwnerOrAdmin) return;
       Alert.alert('Offering', undefined, [
         {
-          text: 'Pin to Top',
+          text: 'Pin to top',
           onPress: async () => {
             try {
               await pinItem(communityId, 'offering', offering.id);
@@ -526,7 +638,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
         { text: 'Cancel', style: 'cancel' },
       ]);
     },
-    [communityId, isOwnerOrAdmin, refetchBoardFeed]
+    [communityId, isOwnerOrAdmin, refetchBoardFeed],
   );
 
   const handlePostLongPress = useCallback(
@@ -534,7 +646,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
       if (!isOwnerOrAdmin) return;
       Alert.alert('Post', undefined, [
         {
-          text: 'Pin to Top',
+          text: 'Pin to top',
           onPress: async () => {
             try {
               await pinItem(communityId, 'post', post.id);
@@ -547,7 +659,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
         { text: 'Cancel', style: 'cancel' },
       ]);
     },
-    [communityId, isOwnerOrAdmin, refetchBoardFeed]
+    [communityId, isOwnerOrAdmin, refetchBoardFeed],
   );
 
   const handleUnpin = useCallback(async () => {
@@ -570,7 +682,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
     if (canPost && canOffer) {
       Alert.alert('Create', 'What would you like to create?', [
         {
-          text: 'New Post',
+          text: 'New post',
           onPress: () =>
             router.push({
               pathname: '/community/[communityId]/posts/new',
@@ -578,7 +690,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
             }),
         },
         {
-          text: 'New Offering',
+          text: 'New offering',
           onPress: () =>
             router.push({
               pathname: '/community/[communityId]/offerings/new',
@@ -604,7 +716,7 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-background">
+      <View className="flex-1" style={{ backgroundColor: '#FAF7F2' }}>
         <BoardSkeleton />
       </View>
     );
@@ -613,93 +725,159 @@ export function BoardTab({ communityId, canPostOfferings, isOwnerOrAdmin }: Boar
   const hasContent = posts.length > 0 || offerings.length > 0 || !!pinned;
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1" style={{ backgroundColor: '#FAF7F2' }}>
       <ScrollView
-        contentContainerStyle={{ paddingTop: 12, paddingBottom: 80 }}
+        contentContainerStyle={{ paddingTop: 16, paddingBottom: 96 }}
         refreshControl={
-          <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor="#660000"
+          />
         }
       >
         {/* Composer prompt */}
         {isOwnerOrAdmin && (
-          <Pressable
-            className="mx-4 mb-3 flex-row items-center gap-3 p-4 rounded-xl border border-neutral-200 bg-white dark:bg-neutral-950 dark:border-neutral-800 active:bg-neutral-50 dark:active:bg-neutral-900"
-            onPress={() =>
-              router.push({
-                pathname: '/community/[communityId]/posts/new',
-                params: { communityId },
-              })
-            }
-          >
-            <View className="w-9 h-9 rounded-full bg-neutral-100 dark:bg-neutral-800 justify-center items-center">
-              <Ionicons name="create-outline" size={18} color="#78716C" />
-            </View>
-            <Text className="flex-1 text-sm text-muted-foreground">Write something...</Text>
-            <Ionicons name="image-outline" size={20} color="#a1a1aa" />
-          </Pressable>
-        )}
-
-        {/* Pinned item */}
-        {pinned && (
-          <PinnedBanner
-            pinned={pinned}
-            isOwnerOrAdmin={isOwnerOrAdmin}
-            onPress={handlePinnedPress}
-            onUnpin={handleUnpin}
-          />
-        )}
-
-        {/* Posts feed (vertical) */}
-        {posts.length > 0 && (
-          <View className="mb-2">
-            {posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={post}
-                onPress={() => {
-                  /* posts have no detail screen yet */
-                }}
-                onLongPress={() => handlePostLongPress(post)}
-              />
-            ))}
+          <View className="px-6 mb-5">
+            <Pressable
+              className="flex-row items-center gap-3 px-5 py-4 rounded-2xl active:opacity-80"
+              style={{ backgroundColor: '#FFFFFF' }}
+              onPress={() =>
+                router.push({
+                  pathname: '/community/[communityId]/posts/new',
+                  params: { communityId },
+                })
+              }
+            >
+              <View
+                className="w-9 h-9 rounded-full items-center justify-center"
+                style={{ backgroundColor: '#F5E6D3' }}
+              >
+                <MaterialCommunityIcons name="pencil-outline" size={18} color="#660000" />
+              </View>
+              <Text
+                className="flex-1 font-sans"
+                style={{ color: '#A8A29E', fontSize: 14 }}
+              >
+                Write something…
+              </Text>
+              <MaterialCommunityIcons name="image-outline" size={20} color="#A8A29E" />
+            </Pressable>
           </View>
         )}
 
-        {/* Category rows (horizontal) */}
-        {BUCKET_ORDER.map((config) => (
-          <CategoryRow
-            key={config.key}
-            config={config}
-            offerings={buckets[config.key]}
-            onItemPress={handleOfferingPress}
-            onItemLongPress={handleOfferingLongPress}
-          />
-        ))}
+        {/* Pinned */}
+        {pinned && (
+          <View className="px-6">
+            <PinnedBanner
+              pinned={pinned}
+              isOwnerOrAdmin={isOwnerOrAdmin}
+              onPress={handlePinnedPress}
+              onUnpin={handleUnpin}
+            />
+          </View>
+        )}
 
-        {/* Empty state */}
-        {!hasContent && (
-          <View className="flex-1 justify-center items-center p-6 gap-4 mt-12">
-            <View className="w-16 h-16 rounded-full bg-muted justify-center items-center">
-              <Ionicons name="newspaper-outline" size={32} color="#78716C" />
+        {/* Posts */}
+        {posts.length > 0 && (
+          <View className="px-6 mb-7">
+            <SectionHeader label="Community posts" />
+            <View className="gap-3">
+              {posts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onPress={() => {
+                    /* posts have no detail screen yet */
+                  }}
+                  onLongPress={() => handlePostLongPress(post)}
+                />
+              ))}
             </View>
-            <Text className="text-lg font-semibold text-foreground">Nothing here yet</Text>
-            <Text className="text-sm text-muted-foreground text-center max-w-[280px]">
+          </View>
+        )}
+
+        {/* Offerings */}
+        {offerings.length > 0 && (
+          <View className="mb-7">
+            <View className="px-6">
+              <SectionHeader label="Offerings" />
+            </View>
+            <OfferingFilters value={filter} onChange={setFilter} />
+            <View
+              className="px-6 pt-5 flex-row flex-wrap"
+              style={{ rowGap: 24, columnGap: 16 }}
+            >
+              {filteredOfferings.length === 0 ? (
+                <View className="w-full py-10 items-center">
+                  <Text className="font-sans" style={{ color: '#A8A29E', fontSize: 14 }}>
+                    Nothing in this category yet.
+                  </Text>
+                </View>
+              ) : (
+                filteredOfferings.map((offering) => (
+                  <View
+                    key={offering.id}
+                    // 2 columns: each takes ~46% so two of them + the
+                    // 16px column gap stay under 100% even on narrow screens.
+                    style={{ width: '46%' }}
+                  >
+                    <OfferingGridCard
+                      offering={offering}
+                      onPress={() => handleOfferingPress(offering)}
+                      onLongPress={
+                        isOwnerOrAdmin ? () => handleOfferingLongPress(offering) : undefined
+                      }
+                    />
+                  </View>
+                ))
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Empty */}
+        {!hasContent && (
+          <View className="flex-1 justify-center items-center px-8 mt-16 gap-3">
+            <View
+              className="w-16 h-16 rounded-full items-center justify-center"
+              style={{ backgroundColor: '#F5E6D3' }}
+            >
+              <MaterialCommunityIcons name="newspaper-variant-outline" size={32} color="#660000" />
+            </View>
+            <Text
+              className="font-bold"
+              style={{ color: '#1C1917', fontSize: 18 }}
+            >
+              Nothing here yet
+            </Text>
+            <Text
+              className="font-sans text-center"
+              style={{ color: '#78716C', fontSize: 14 }}
+            >
               {showFAB
-                ? 'Be the first to post something to the community board.'
+                ? 'Be the first to share something with the community.'
                 : 'No posts or offerings have been shared yet.'}
             </Text>
           </View>
         )}
       </ScrollView>
 
-      {/* FAB */}
+      {/* FAB — rounded-2xl burgundy square, matches Stitch reference */}
       {showFAB && (
         <Pressable
-          className="absolute bottom-6 right-6 w-14 h-14 rounded-full bg-primary justify-center items-center shadow-lg active:opacity-80"
           onPress={handleFAB}
-          style={{ elevation: 6 }}
+          className="absolute bottom-6 right-6 w-14 h-14 rounded-2xl items-center justify-center active:scale-95"
+          style={{
+            backgroundColor: '#660000',
+            shadowColor: '#4a352f',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.25,
+            shadowRadius: 16,
+            elevation: 6,
+          }}
         >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
+          <Ionicons name="add" size={28} color="#FAF7F2" />
         </Pressable>
       )}
     </View>

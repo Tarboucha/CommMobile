@@ -1,9 +1,9 @@
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, ScrollView, Pressable, Image } from 'react-native';
 import { router } from 'expo-router';
 import type { Href } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
-import type { Community } from '@/types/community';
+import type { Community, CommunityMember } from '@/types/community';
 
 interface InfoTabProps {
   community: Community;
@@ -13,6 +13,7 @@ interface InfoTabProps {
   canPostOfferings: boolean;
   user: { id: string } | null;
   actionLoading: boolean;
+  members: CommunityMember[];
   onJoin: () => void;
   onLeave: () => void;
   onInvite: () => void;
@@ -26,136 +27,303 @@ export function InfoTab({
   canPostOfferings,
   user,
   actionLoading,
+  members,
   onJoin,
   onLeave,
   onInvite,
 }: InfoTabProps) {
-  const accessLabel =
-    community.access_type === 'open'
-      ? 'Open'
-      : community.access_type === 'request_to_join'
-        ? 'Request to Join'
-        : 'Invite Only';
+  const totalMembers = community.current_members_count ?? members.length;
+  const previewMembers = members.slice(0, 5);
+  const stewards = members
+    .filter((m) => m.member_role === 'owner' || m.member_role === 'admin')
+    .slice(0, 4);
 
   return (
     <ScrollView
-      className="flex-1 bg-background"
-      contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      className="flex-1"
+      style={{ backgroundColor: '#FAF7F2' }}
+      contentContainerStyle={{ padding: 24, paddingBottom: 64 }}
     >
-      {/* Header */}
-      <View className="items-center mb-6">
-        <View className="w-20 h-20 rounded-2xl bg-primary/10 justify-center items-center mb-4">
-          <Ionicons name="people" size={36} color="#660000" />
-        </View>
-        <Text className="text-2xl font-bold text-foreground text-center">
-          {community.community_name}
-        </Text>
-        {community.community_description && (
-          <Text className="text-sm text-muted-foreground text-center mt-2 px-4">
+      {/* Description */}
+      {community.community_description && (
+        <View className="mb-7">
+          <Text
+            className="font-bold mb-3"
+            style={{ color: '#1C1917', fontSize: 20, lineHeight: 26 }}
+          >
+            About
+          </Text>
+          <Text
+            className="font-sans"
+            style={{ color: '#58413E', fontSize: 16, lineHeight: 26 }}
+          >
             {community.community_description}
           </Text>
-        )}
-      </View>
+        </View>
+      )}
 
-      {/* Stats */}
-      <View className="flex-row gap-3 mb-6">
-        <View className="flex-1 p-4 rounded-xl border border-border bg-card items-center">
-          <Ionicons name="people-outline" size={20} color="#78716C" />
-          <Text className="text-lg font-bold text-foreground mt-1">
-            {community.current_members_count ?? 0}
-          </Text>
-          <Text className="text-xs text-muted-foreground">Members</Text>
-        </View>
-        <View className="flex-1 p-4 rounded-xl border border-border bg-card items-center">
-          <Ionicons name="shield-outline" size={20} color="#78716C" />
-          <Text className="text-sm font-medium text-foreground mt-1">{accessLabel}</Text>
-          <Text className="text-xs text-muted-foreground">Access</Text>
-        </View>
-        <View className="flex-1 p-4 rounded-xl border border-border bg-card items-center">
-          <Ionicons name="people" size={20} color="#78716C" />
-          <Text className="text-lg font-bold text-foreground mt-1">
-            {community.max_members ?? 100}
-          </Text>
-          <Text className="text-xs text-muted-foreground">Max</Text>
-        </View>
-      </View>
-
-      {/* View Members */}
+      {/* Members preview */}
       <Pressable
-        className="flex-row items-center justify-between p-4 rounded-xl border border-border bg-card mb-4 active:bg-muted/50"
         onPress={() => router.push(`/community/${communityId}/members` as Href)}
+        className="py-5 active:opacity-80"
+        style={{ borderTopWidth: 1, borderTopColor: '#E8D5D5' }}
       >
-        <View className="flex-row items-center">
-          <Ionicons name="people-outline" size={20} color="#78716C" />
-          <Text className="text-sm font-medium text-foreground ml-3">View Members</Text>
+        <View className="flex-row items-center justify-between mb-4">
+          <Text
+            className="font-semibold uppercase"
+            style={{ color: '#78716C', fontSize: 11, letterSpacing: 1.5 }}
+          >
+            Community members
+          </Text>
+          <View className="flex-row items-center gap-1">
+            <Text
+              className="font-semibold"
+              style={{ color: '#660000', fontSize: 13 }}
+            >
+              View all {totalMembers}
+            </Text>
+            <MaterialCommunityIcons name="arrow-right" size={14} color="#660000" />
+          </View>
         </View>
-        <Ionicons name="chevron-forward" size={18} color="#78716C" />
-      </Pressable>
 
-      {/* Invite Members */}
-      {isMember && (isOwnerOrAdmin || community.allow_member_invites) && (
-        <Pressable
-          className="flex-row items-center justify-between p-4 rounded-xl border border-border bg-card mb-4 active:bg-muted/50"
-          onPress={onInvite}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="person-add-outline" size={20} color="#78716C" />
-            <Text className="text-sm font-medium text-foreground ml-3">Invite Members</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#78716C" />
-        </Pressable>
-      )}
-
-      {/* Post Offering */}
-      {isMember && canPostOfferings && (
-        <Pressable
-          className="flex-row items-center justify-between p-4 rounded-xl border border-border bg-card mb-4 active:bg-muted/50"
-          onPress={() => router.push(`/community/${communityId}/offerings/new` as Href)}
-        >
-          <View className="flex-row items-center">
-            <Ionicons name="add-circle-outline" size={20} color="#78716C" />
-            <Text className="text-sm font-medium text-foreground ml-3">Post an Offering</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#78716C" />
-        </Pressable>
-      )}
-
-      {/* Action Button */}
-      {user && (
-        <View className="mt-4">
-          {isMember ? (
-            <Pressable
-              className="p-4 rounded-xl border border-destructive active:bg-destructive/10"
-              onPress={onLeave}
-              disabled={actionLoading}
+        <View className="flex-row items-center">
+          {previewMembers.map((m, i) => (
+            <MemberAvatar
+              key={m.id}
+              profile={m.profiles}
+              offsetClass={i > 0 ? '-ml-3' : ''}
+            />
+          ))}
+          {totalMembers > previewMembers.length && (
+            <View
+              className="-ml-3 w-10 h-10 rounded-full items-center justify-center"
+              style={{
+                backgroundColor: '#F5E6D3',
+                borderWidth: 2,
+                borderColor: '#FAF7F2',
+              }}
             >
-              <Text className="text-sm font-semibold text-destructive text-center">
-                {actionLoading ? 'Leaving...' : 'Leave Community'}
-              </Text>
-            </Pressable>
-          ) : community.access_type !== 'invite_only' ? (
-            <Pressable
-              className="p-4 rounded-xl bg-primary active:bg-primary/80"
-              onPress={onJoin}
-              disabled={actionLoading}
-            >
-              <Text className="text-sm font-semibold text-primary-foreground text-center">
-                {actionLoading
-                  ? 'Joining...'
-                  : community.access_type === 'request_to_join'
-                    ? 'Request to Join'
-                    : 'Join Community'}
-              </Text>
-            </Pressable>
-          ) : (
-            <View className="p-4 rounded-xl bg-muted">
-              <Text className="text-sm text-muted-foreground text-center">
-                This community is invite only.
+              <Text
+                className="font-bold"
+                style={{ color: '#660000', fontSize: 11 }}
+              >
+                +{totalMembers - previewMembers.length}
               </Text>
             </View>
           )}
         </View>
+      </Pressable>
+
+      {/* Stewards */}
+      {stewards.length > 0 && (
+        <View
+          className="py-5"
+          style={{ borderTopWidth: 1, borderTopColor: '#E8D5D5' }}
+        >
+          <Text
+            className="font-semibold uppercase mb-4"
+            style={{ color: '#78716C', fontSize: 11, letterSpacing: 1.5 }}
+          >
+            Community stewards
+          </Text>
+          <View className="gap-4">
+            {stewards.map((s) => (
+              <View key={s.id} className="flex-row items-center gap-4">
+                <MemberAvatar profile={s.profiles} size={48} />
+                <View className="flex-1 min-w-0">
+                  <Text
+                    className="font-semibold"
+                    style={{ color: '#1C1917', fontSize: 15 }}
+                    numberOfLines={1}
+                  >
+                    {memberName(s.profiles)}
+                  </Text>
+                  <Text
+                    className="font-sans"
+                    style={{ color: '#78716C', fontSize: 13 }}
+                  >
+                    {s.member_role === 'owner' ? 'Owner' : 'Admin'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
       )}
+
+      {/* Actions */}
+      <View
+        className="pt-6 gap-3"
+        style={{ borderTopWidth: 1, borderTopColor: '#E8D5D5' }}
+      >
+        {isMember && (isOwnerOrAdmin || community.allow_member_invites) && (
+          <ActionRow
+            icon="account-plus-outline"
+            label="Invite members"
+            onPress={onInvite}
+          />
+        )}
+
+        {isMember && canPostOfferings && (
+          <ActionRow
+            icon="plus-circle-outline"
+            label="Post an offering"
+            onPress={() =>
+              router.push(`/community/${communityId}/offerings/new` as Href)
+            }
+          />
+        )}
+
+        {/* Primary CTA */}
+        {user && (
+          <View className="mt-3">
+            {isMember ? (
+              <Pressable
+                onPress={onLeave}
+                disabled={actionLoading}
+                className="rounded-2xl h-14 items-center justify-center active:opacity-90"
+                style={{
+                  backgroundColor: 'transparent',
+                  borderWidth: 1.5,
+                  borderColor: '#DC2626',
+                  opacity: actionLoading ? 0.6 : 1,
+                }}
+              >
+                <Text
+                  className="font-semibold"
+                  style={{ color: '#DC2626', fontSize: 15 }}
+                >
+                  {actionLoading ? 'Leaving…' : 'Leave community'}
+                </Text>
+              </Pressable>
+            ) : community.access_type !== 'invite_only' ? (
+              <Pressable
+                onPress={onJoin}
+                disabled={actionLoading}
+                className="rounded-2xl h-14 items-center justify-center active:opacity-90"
+                style={{
+                  backgroundColor: '#660000',
+                  opacity: actionLoading ? 0.7 : 1,
+                  shadowColor: '#4a352f',
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 16,
+                  elevation: 4,
+                }}
+              >
+                <Text
+                  className="font-semibold"
+                  style={{ color: '#FAF7F2', fontSize: 15 }}
+                >
+                  {actionLoading
+                    ? 'Joining…'
+                    : community.access_type === 'request_to_join'
+                      ? 'Request to join'
+                      : 'Join community'}
+                </Text>
+              </Pressable>
+            ) : (
+              <View
+                className="rounded-2xl py-4 items-center"
+                style={{ backgroundColor: '#F5E6D3' }}
+              >
+                <Text
+                  className="font-sans"
+                  style={{ color: '#78716C', fontSize: 14 }}
+                >
+                  This community is invite only.
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+      </View>
     </ScrollView>
+  );
+}
+
+// ─── helpers ─────────────────────────────────────────────────────────
+
+function memberName(profile: CommunityMember['profiles']) {
+  if (!profile) return 'Unknown member';
+  const first = profile.first_name ?? '';
+  const last = profile.last_name ?? '';
+  const full = `${first} ${last}`.trim();
+  return full || 'Member';
+}
+
+function MemberAvatar({
+  profile,
+  size = 40,
+  offsetClass = '',
+}: {
+  profile: CommunityMember['profiles'];
+  size?: number;
+  offsetClass?: string;
+}) {
+  const initial = (memberName(profile)?.[0] ?? '•').toUpperCase();
+
+  if (profile?.avatar_url) {
+    return (
+      <Image
+        source={{ uri: profile.avatar_url }}
+        className={offsetClass}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 2,
+          borderColor: '#FAF7F2',
+        }}
+      />
+    );
+  }
+
+  return (
+    <View
+      className={`${offsetClass} items-center justify-center`}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: '#F5E6D3',
+        borderWidth: 2,
+        borderColor: '#FAF7F2',
+      }}
+    >
+      <Text
+        className="font-bold"
+        style={{ color: '#660000', fontSize: size * 0.4 }}
+      >
+        {initial}
+      </Text>
+    </View>
+  );
+}
+
+function ActionRow({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center gap-3 rounded-2xl px-5 py-4 active:opacity-80"
+      style={{ backgroundColor: '#FFFFFF' }}
+    >
+      <MaterialCommunityIcons name={icon} size={20} color="#660000" />
+      <Text
+        className="flex-1 font-semibold"
+        style={{ color: '#1C1917', fontSize: 15 }}
+      >
+        {label}
+      </Text>
+      <MaterialCommunityIcons name="chevron-right" size={20} color="#A8A29E" />
+    </Pressable>
   );
 }

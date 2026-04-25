@@ -439,6 +439,7 @@ model community_posts {
   id                     String                   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   community_id           String                   @db.Uuid
   author_id              String                   @db.Uuid
+  title                  String?                  @db.VarChar(100)
   body                   String
   image_url              String?
   link_url               String?

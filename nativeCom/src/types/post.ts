@@ -13,6 +13,7 @@ export interface CommunityPost {
   id: string;
   community_id: string;
   author_id: string;
+  title: string | null;
   body: string;
   image_url: string | null;
   link_url: string | null;
@@ -25,6 +26,7 @@ export interface CommunityPost {
 }
 
 export interface CreatePostInput {
+  title?: string;
   body: string;
   image_url?: string | null;
   link_url?: string | null;

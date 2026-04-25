@@ -1,6 +1,5 @@
-import { View } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Text } from '@/components/ui/text';
-import { Button } from '@/components/ui/button';
 
 interface HeroSectionProps {
   onNavigate: (path: string) => void;
@@ -8,31 +7,41 @@ interface HeroSectionProps {
 
 export function HeroSection({ onNavigate }: HeroSectionProps) {
   return (
-    <View className="py-10 px-4 items-center bg-burgundy">
-      <View className="w-16 h-16 rounded-full bg-white/20 justify-center items-center mb-4">
-        <Text className="text-3xl">🏘️</Text>
+    <View className="bg-background px-6 pt-16 pb-8 gap-3">
+      <Text className="font-bold text-[36px] leading-[40px] tracking-tight text-primary">
+        Belong to your neighborhood.
+      </Text>
+
+      <Text className="font-sans text-[17px] leading-[26px] text-muted-foreground pt-1">
+        Share goods, services, and skills with the people right outside your door.
+      </Text>
+
+      <View className="gap-3 pt-6">
+        <Pressable
+          onPress={() => onNavigate('/auth/sign-up')}
+          className="bg-primary rounded-2xl h-14 items-center justify-center active:opacity-90"
+          style={{
+            shadowColor: '#4a352f',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.12,
+            shadowRadius: 20,
+            elevation: 4,
+          }}
+        >
+          <Text className="font-semibold text-[17px] text-primary-foreground">
+            Get Started
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => onNavigate('/auth/login')}
+          className="h-10 items-center justify-center"
+        >
+          <Text className="font-semibold text-[15px] text-primary">
+            Already a member?  <Text className="underline">Log in</Text>
+          </Text>
+        </Pressable>
       </View>
-
-      <Text className="text-2xl font-bold text-center mb-4 px-4 text-white">
-        Your Neighbourhood, Your Marketplace
-      </Text>
-
-      <Text className="text-base text-center mb-6 max-w-[500px] px-4 text-white/80">
-        Discover local offerings, connect with your community, and support the people around you.
-      </Text>
-
-      <View className="w-full max-w-[400px] gap-4 mb-4 px-4">
-        <Button className="bg-white" onPress={() => onNavigate('/auth/sign-up')}>
-          <Text className="text-burgundy font-semibold">Get Started</Text>
-        </Button>
-        <Button className="bg-rose" onPress={() => onNavigate('/auth/login')}>
-          <Text className="text-white font-semibold">Login</Text>
-        </Button>
-      </View>
-
-      <Text className="text-xs text-center text-white/70">
-        Currently in <Text className="font-semibold text-white">Pre-Alpha</Text> · Features may change
-      </Text>
     </View>
   );
 }

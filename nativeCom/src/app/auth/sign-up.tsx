@@ -1,96 +1,280 @@
 import { useState } from 'react';
-import { View, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import {
+  View,
+  Image,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { router, Stack } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from '@/components/ui/text';
-import { Button } from '@/components/ui/button';
-import { PasswordInput } from '@/components/pages/account/shared/password-input';
+import { GoogleGIcon } from '@/components/ui/google-g-icon';
 import { useSignUp } from '@/hooks/use-sign-up';
-import { useTheme } from '@/hooks/use-theme';
-import { NAV_COLORS } from '@/lib/constants/nav-colors';
+import { useLogin } from '@/hooks/use-login';
+
+function HeaderLogo() {
+  return (
+    <Image
+      source={require('@/assets/images/icon.png')}
+      style={{ width: 120, height: 40 }}
+      resizeMode="contain"
+    />
+  );
+}
 
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const { handleSignUp, loading } = useSignUp();
-  const { colorScheme } = useTheme();
-  const navColors = NAV_COLORS[colorScheme];
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const { handleSignUp, loading: signUpLoading } = useSignUp();
+  // Reuse the Google login hook — the upsert in /auth/google handles
+  // sign-up and sign-in transparently.
+  const { handleGoogleLogin, loading: googleLoading } = useLogin();
+
+  const loading = signUpLoading || googleLoading;
 
   return (
     <>
       <Stack.Screen
         options={{
-          title: 'Sign Up',
-          headerStyle: {
-            backgroundColor: navColors.background,
-          },
-          headerTintColor: navColors.text,
+          headerShown: true,
+          headerTitle: () => <HeaderLogo />,
+          headerTitleAlign: 'center',
+          headerStyle: { backgroundColor: '#FAF7F2' },
           headerShadowVisible: false,
+          headerTintColor: '#660000',
         }}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        className="flex-1"
+        className="flex-1 bg-background"
       >
         <ScrollView
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <View className="flex-1 bg-background justify-center p-6">
-            <View className="gap-4">
-              <Text className="text-3xl font-bold text-center mb-1">
-                Welcome to KoDo
+          <View className="flex-1 px-6 pt-6 pb-10">
+            {/* Header */}
+            <View className="mb-10">
+              <Text
+                className="font-bold tracking-tight"
+                style={{ color: '#660000', fontSize: 32, lineHeight: 36 }}
+              >
+                Join the neighborhood
               </Text>
-              <Text className="text-lg text-center text-muted-foreground mb-6">
-                Create your account
+              <Text
+                className="font-sans mt-2"
+                style={{ color: '#78716C', fontSize: 16, lineHeight: 24 }}
+              >
+                Create an account to start sharing and connecting.
               </Text>
+            </View>
 
+            {/* Email */}
+            <View className="gap-2 mb-5">
+              <Text
+                className="font-semibold uppercase ml-1"
+                style={{ color: '#78716C', fontSize: 12, letterSpacing: 0.8 }}
+              >
+                Email
+              </Text>
               <TextInput
-                className="h-[50px] border border-input rounded-lg px-4 text-base bg-card text-foreground"
-                placeholder="Email"
-                placeholderTextColor="#6B7280"
                 value={email}
                 onChangeText={setEmail}
+                placeholder="hello@kodo.com"
+                placeholderTextColor="#A8A29E"
                 autoCapitalize="none"
                 keyboardType="email-address"
                 editable={!loading}
+                className="rounded-2xl h-14 px-4 font-sans"
+                style={{
+                  backgroundColor: '#F5E6D3',
+                  color: '#1C1917',
+                  fontSize: 16,
+                }}
               />
+            </View>
 
-              <PasswordInput
-                label=""
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Password"
-                hint="Must be at least 6 characters"
-              />
-
-              <PasswordInput
-                label=""
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                placeholder="Confirm Password"
-              />
-
-              <Button
-                className="mt-4"
-                onPress={() => handleSignUp({ email, password, confirmPassword })}
-                disabled={loading}
+            {/* Password */}
+            <View className="gap-2 mb-5">
+              <Text
+                className="font-semibold uppercase ml-1"
+                style={{ color: '#78716C', fontSize: 12, letterSpacing: 0.8 }}
               >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text>Sign Up</Text>
-                )}
-              </Button>
-
-              <View className="flex-row justify-center items-center gap-1 mt-6">
-                <Text className="text-base text-muted-foreground">Already have an account?</Text>
-                <Pressable onPress={() => router.push('/auth/login')}>
-                  <Text className="text-base font-semibold text-primary underline">
-                    Login
-                  </Text>
+                Password
+              </Text>
+              <View className="relative">
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="At least 6 characters"
+                  placeholderTextColor="#A8A29E"
+                  secureTextEntry={!showPassword}
+                  editable={!loading}
+                  className="rounded-2xl h-14 pl-4 pr-12 font-sans"
+                  style={{
+                    backgroundColor: '#F5E6D3',
+                    color: '#1C1917',
+                    fontSize: 16,
+                  }}
+                />
+                <Pressable
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  hitSlop={8}
+                  className="absolute right-4 top-0 bottom-0 justify-center"
+                >
+                  <MaterialCommunityIcons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={22}
+                    color="#78716C"
+                  />
                 </Pressable>
               </View>
+            </View>
+
+            {/* Confirm password */}
+            <View className="gap-2 mb-8">
+              <Text
+                className="font-semibold uppercase ml-1"
+                style={{ color: '#78716C', fontSize: 12, letterSpacing: 0.8 }}
+              >
+                Confirm password
+              </Text>
+              <View className="relative">
+                <TextInput
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Retype your password"
+                  placeholderTextColor="#A8A29E"
+                  secureTextEntry={!showConfirmPassword}
+                  editable={!loading}
+                  className="rounded-2xl h-14 pl-4 pr-12 font-sans"
+                  style={{
+                    backgroundColor: '#F5E6D3',
+                    color: '#1C1917',
+                    fontSize: 16,
+                  }}
+                />
+                <Pressable
+                  onPress={() => setShowConfirmPassword((prev) => !prev)}
+                  hitSlop={8}
+                  className="absolute right-4 top-0 bottom-0 justify-center"
+                >
+                  <MaterialCommunityIcons
+                    name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={22}
+                    color="#78716C"
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Primary submit */}
+            <Pressable
+              onPress={() => handleSignUp({ email, password, confirmPassword })}
+              disabled={loading}
+              className="rounded-2xl h-14 flex-row items-center justify-center gap-2 active:opacity-90"
+              style={{
+                backgroundColor: '#660000',
+                opacity: loading ? 0.7 : 1,
+                shadowColor: '#4a352f',
+                shadowOffset: { width: 0, height: 8 },
+                shadowOpacity: 0.12,
+                shadowRadius: 20,
+                elevation: 4,
+              }}
+            >
+              {signUpLoading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text
+                    className="font-semibold"
+                    style={{ color: '#FFFFFF', fontSize: 16 }}
+                  >
+                    Create account
+                  </Text>
+                  <MaterialCommunityIcons name="arrow-right" size={20} color="#FFFFFF" />
+                </>
+              )}
+            </Pressable>
+
+            {/* Divider */}
+            <View className="flex-row items-center my-8">
+              <View className="flex-1 h-px" style={{ backgroundColor: '#E8D5D5' }} />
+              <Text
+                className="font-semibold uppercase mx-4"
+                style={{ color: '#78716C', fontSize: 11, letterSpacing: 1.5 }}
+              >
+                or continue with
+              </Text>
+              <View className="flex-1 h-px" style={{ backgroundColor: '#E8D5D5' }} />
+            </View>
+
+            {/* Google */}
+            <Pressable
+              onPress={handleGoogleLogin}
+              disabled={loading}
+              className="rounded-2xl h-14 flex-row items-center justify-center gap-3 active:opacity-90"
+              style={{
+                backgroundColor: '#FFFFFF',
+                borderWidth: 1,
+                borderColor: '#E8D5D5',
+                opacity: loading ? 0.7 : 1,
+              }}
+            >
+              <GoogleGIcon size={20} />
+              <Text
+                className="font-semibold"
+                style={{ color: '#1C1917', fontSize: 16 }}
+              >
+                Continue with Google
+              </Text>
+            </Pressable>
+
+            {/* Login link */}
+            <View className="flex-row justify-center items-center gap-1 mt-10">
+              <Text className="font-sans" style={{ color: '#78716C', fontSize: 15 }}>
+                Already have an account?
+              </Text>
+              <Pressable
+                onPress={() => router.push('/auth/login')}
+                disabled={loading}
+                hitSlop={8}
+              >
+                <Text
+                  className="font-semibold underline"
+                  style={{ color: '#660000', fontSize: 15 }}
+                >
+                  Log in
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Terms */}
+            <View className="mt-8 px-4">
+              <Text
+                className="font-sans text-center"
+                style={{ color: '#A8A29E', fontSize: 12, lineHeight: 18 }}
+              >
+                By creating an account, you agree to our{' '}
+                <Text className="underline" style={{ color: '#78716C' }}>
+                  Terms
+                </Text>{' '}
+                and{' '}
+                <Text className="underline" style={{ color: '#78716C' }}>
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
             </View>
           </View>
         </ScrollView>

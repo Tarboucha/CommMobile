@@ -8,6 +8,7 @@ import { HamburgerButton } from '@/components/navigation/hamburger-button';
 import { NotificationBellButton } from '@/components/navigation/notification-bell-button';
 import { NAV_COLORS } from '@/lib/constants/nav-colors';
 import { useTheme } from '@/hooks/use-theme';
+import { useAuthStore } from '@/lib/stores/auth-store';
 
 function HeaderLogo() {
   return (
@@ -21,6 +22,7 @@ function HeaderLogo() {
 
 export default function TabLayout() {
   const { colorScheme } = useTheme();
+  const isAuthed = useAuthStore((s) => s.user !== null);
 
   const colors = NAV_COLORS[colorScheme];
 
@@ -29,11 +31,13 @@ export default function TabLayout() {
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: {
-          backgroundColor: colors.card,
-          borderTopColor: colors.border,
-        },
-        headerShown: true,
+        tabBarStyle: isAuthed
+          ? {
+              backgroundColor: colors.card,
+              borderTopColor: colors.border,
+            }
+          : { display: 'none' },
+        headerShown: isAuthed,
         headerTitle: () => <HeaderLogo />,
         headerTitleAlign: 'center',
         headerStyle: { backgroundColor: colors.card },

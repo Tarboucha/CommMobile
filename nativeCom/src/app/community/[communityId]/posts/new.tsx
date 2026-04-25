@@ -19,12 +19,16 @@ export default function NewPostScreen() {
   const { communityId } = useLocalSearchParams<{ communityId: string }>();
   const router = useRouter();
 
+  const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canSubmit = body.trim().length > 0 && !isSubmitting;
+  const TITLE_MAX = 100;
+  const trimmedTitle = title.trim();
+  const titleTooLong = trimmedTitle.length > TITLE_MAX;
+  const canSubmit = body.trim().length > 0 && !titleTooLong && !isSubmitting;
 
   async function handlePublish() {
     if (!canSubmit || !communityId) return;
@@ -32,6 +36,7 @@ export default function NewPostScreen() {
     try {
       setIsSubmitting(true);
       await createPost(communityId, {
+        title: trimmedTitle.length > 0 ? trimmedTitle : undefined,
         body: body.trim(),
         image_url: imageUrl.trim() || null,
         link_url: linkUrl.trim() || null,
@@ -81,6 +86,27 @@ export default function NewPostScreen() {
           contentContainerStyle={{ padding: 16 }}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Title (optional) */}
+          <View className="mb-4">
+            <View className="flex-row items-center justify-between mb-1.5">
+              <Text className="text-xs text-muted-foreground">Title (optional)</Text>
+              <Text
+                className="text-xs"
+                style={{ color: titleTooLong ? '#DC2626' : '#A8A29E' }}
+              >
+                {trimmedTitle.length} / {TITLE_MAX}
+              </Text>
+            </View>
+            <TextInput
+              className="text-lg font-semibold text-foreground"
+              placeholder="Give your post a headline"
+              placeholderTextColor="#a1a1aa"
+              value={title}
+              onChangeText={setTitle}
+              maxLength={TITLE_MAX + 20 /* allow a bit over so the counter goes red */}
+            />
+          </View>
+
           {/* Body */}
           <TextInput
             className="text-base text-foreground min-h-[160px]"
@@ -90,7 +116,6 @@ export default function NewPostScreen() {
             onChangeText={setBody}
             multiline
             textAlignVertical="top"
-            autoFocus
           />
 
           {/* Image URL */}

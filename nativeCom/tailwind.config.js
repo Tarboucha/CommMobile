@@ -130,6 +130,16 @@ module.exports = {
         button: ["16px", { lineHeight: "20px", fontWeight: "600" }],
         caption: ["14px", { lineHeight: "18px", fontWeight: "400" }],
       },
+
+      fontFamily: {
+        // Plus Jakarta Sans loaded at root via expo-font. Maps each weight
+        // to its specific variant — RN doesn't inherit font-weight across
+        // custom fonts the way browsers do, so we use these explicit aliases.
+        sans: ["PlusJakartaSans_400Regular"],
+        medium: ["PlusJakartaSans_500Medium"],
+        semibold: ["PlusJakartaSans_600SemiBold"],
+        bold: ["PlusJakartaSans_700Bold"],
+      },
     },
   },
   plugins: [],

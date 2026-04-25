@@ -6,12 +6,17 @@ import { paginationSchema } from "@/lib/validations/pagination";
 // ============================================================================
 
 export const createPostSchema = z.object({
+  // Optional headline shown bold above the body. Trimmed; whitespace-only
+  // or empty strings are rejected (use `undefined` if you don't want one).
+  title: z.string().trim().min(1).max(100).optional(),
   body: z.string().min(1, "Post body is required").max(5000),
   image_url: z.string().url("Invalid image URL").optional().nullable(),
   link_url: z.string().url("Invalid link URL").optional().nullable(),
 });
 
 export const updatePostSchema = z.object({
+  // Pass null to clear an existing title.
+  title: z.string().trim().min(1).max(100).nullable().optional(),
   body: z.string().min(1).max(5000).optional(),
   image_url: z.string().url().optional().nullable(),
   link_url: z.string().url().optional().nullable(),
